@@ -19,6 +19,21 @@ export const metadata: Metadata = {
   title: "NexusRoute · AI Model Intelligence Platform",
   description:
     "Route any prompt to the best model. The world's most advanced AI model selection engine — free, private, and runs in your browser.",
+  metadataBase: new URL("https://nexusrouteai.com"),
+  openGraph: {
+    title: "NexusRoute · AI Model Intelligence Platform",
+    description:
+      "Route any prompt to the best model. 24+ models, real-time scoring, free and private.",
+    siteName: "NexusRoute",
+    type: "website",
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "NexusRoute · AI Model Intelligence Platform",
+    description:
+      "Route any prompt to the best model. 24+ models, real-time scoring, free and private.",
+  },
 };
 
 export default function RootLayout({
