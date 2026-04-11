@@ -81,12 +81,17 @@ const FEATURE_ROWS: { key: keyof ModelProfile["specs"]; label: string }[] = [
   { key: "supportsStreaming", label: "Streaming" },
 ];
 
+const ALL_MODEL_IDS = new Set(ALL_MODELS.map((m) => m.id));
+
 const QUICK_PICKS = [
   { label: "Frontier Face-off", icon: Trophy, ids: ["gpt-5.4", "claude-opus-4.6", "gemini-3.1-pro"] },
   { label: "Best Budget", icon: Coins, ids: ["gpt-5.4-nano", "claude-haiku-4.5", "gemini-2.5-flash-lite"] },
   { label: "Open Weight Champions", icon: Zap, ids: ["llama-4-maverick", "deepseek-v3.2", "qwen-3.5"] },
   { label: "Reasoning Specialists", icon: Brain, ids: ["o3", "deepseek-r1", "claude-opus-4.6"] },
-];
+].map((pick) => ({
+  ...pick,
+  ids: pick.ids.filter((id) => ALL_MODEL_IDS.has(id)),
+})).filter((pick) => pick.ids.length >= 2);
 
 /* -- Sub-components ------------------------------------------------- */
 
@@ -141,7 +146,11 @@ function VerdictBanner({ models }: { models: ModelProfile[] }) {
    =================================================================== */
 
 export default function ComparePage() {
-  const [selectedIds, setSelectedIds] = useState(["gpt-5.4", "claude-opus-4.6", ""]);
+  const [selectedIds, setSelectedIds] = useState([
+    ALL_MODEL_IDS.has("gpt-5.4") ? "gpt-5.4" : "",
+    ALL_MODEL_IDS.has("claude-opus-4.6") ? "claude-opus-4.6" : "",
+    "",
+  ]);
   const [resetKey, setResetKey] = useState(0);
 
   const activeModels = useMemo(
@@ -246,7 +255,7 @@ export default function ComparePage() {
           <div className="reveal-step" style={{ animationDelay: "0.2s" }}>
             <h2 className="mb-3 panel-label">Next steps</h2>
             <div className="grid gap-2 sm:grid-cols-3">
-              <a href="/advisor" className="next-action">
+              <a href="/" className="next-action">
                 <div className="next-action-icon bg-gradient-to-r from-violet-600 to-indigo-600"><Brain className="h-4 w-4" /></div>
                 <div><p className="font-medium text-white text-sm">Test with your prompt</p><p className="text-[11px] text-zinc-500">See which wins for your task</p></div>
               </a>

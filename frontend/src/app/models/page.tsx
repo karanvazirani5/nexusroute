@@ -27,7 +27,8 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { api, ModelInfo } from "@/lib/api";
 
-const REFERENCE_DATE = "2026-04-06";
+/* Dynamic reference date: "new" = released within the last 30 days from today */
+const REFERENCE_DATE = new Date().toISOString().slice(0, 10);
 
 const PROVIDER_COLORS: Record<string, string> = {
   openai: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
@@ -104,9 +105,9 @@ function isRecentRelease(releaseDate: unknown): boolean {
   if (typeof releaseDate !== "string" || !releaseDate) return false;
   const d = new Date(releaseDate);
   if (Number.isNaN(d.getTime())) return false;
-  const end = new Date(`${REFERENCE_DATE}T23:59:59.999Z`);
-  const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-  return d >= start && d <= end;
+  const now = new Date();
+  const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  return d >= start && d <= now;
 }
 
 function matchesFilter(model: ModelInfo, tab: FilterTab): boolean {
@@ -280,11 +281,15 @@ function ModelCard({ model, onToggle }: { model: ModelInfo; onToggle: (id: strin
 export default function ModelsPage() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    api.getModels().then(setModels).finally(() => setLoading(false));
+    api.getModels()
+      .then(setModels)
+      .catch((e) => setError(e?.message || "Failed to load models"))
+      .finally(() => setLoading(false));
   }, []);
 
   const filteredModels = useMemo(
@@ -319,6 +324,26 @@ export default function ModelsPage() {
         transition={{ duration: 0.3 }}
       >
         <Loader2 className="h-6 w-6 animate-spin text-violet-400" />
+      </motion.div>
+    );
+  }
+
+  if (error) {
+    return (
+      <motion.div
+        className="flex flex-col items-center justify-center gap-3 py-20"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <AlertCircle className="h-8 w-8 text-red-400" />
+        <p className="text-sm font-medium text-zinc-300">Failed to load models</p>
+        <p className="text-[11px] text-zinc-500 max-w-sm text-center">{error}</p>
+        <button
+          onClick={() => { setError(null); setLoading(true); api.getModels().then(setModels).catch((e) => setError(e?.message)).finally(() => setLoading(false)); }}
+          className="mt-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-500 transition-colors"
+        >
+          Retry
+        </button>
       </motion.div>
     );
   }
@@ -379,7 +404,7 @@ export default function ModelsPage() {
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-amber-400" />
             <h2 className="panel-label">New since last refresh</h2>
-            <span className="panel-chip chip-sm">Last 30d · ref {REFERENCE_DATE}</span>
+            <span className="panel-chip chip-sm">Last 30 days</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {newModels.map((model, index) => (

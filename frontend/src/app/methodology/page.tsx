@@ -76,7 +76,7 @@ export default function MethodologyPage() {
       <div className="grid gap-5">
         <DocSection title="What we capture on every prompt" icon={BookOpen} step={1}>
           <p>
-            When you submit a prompt on <Link className="text-violet-400 hover:text-violet-300 transition-colors" href="/advisor">the advisor</Link>, we synchronously run a PII redaction pipeline and a Tier 1 heuristic classifier, then write a single row to the <code>prompt_events</code> table.
+            When you submit a prompt on <Link className="text-violet-400 hover:text-violet-300 transition-colors" href="/">the advisor</Link>, we synchronously run a PII redaction pipeline and a Tier 1 heuristic classifier, then write a single row to the <code>prompt_events</code> table.
           </p>
           <ul>
             <li>An anonymous user id and session id (never linked across devices).</li>

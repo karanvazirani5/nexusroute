@@ -540,7 +540,7 @@ export default function ModelDetailPage() {
       <div className="reveal-step" style={{ animationDelay: "0.2s" }}>
         <h2 className="mb-3 panel-label">Continue exploring</h2>
         <div className="grid gap-2 sm:grid-cols-3">
-          <Link href="/advisor" className="next-action">
+          <Link href="/" className="next-action">
             <div className="next-action-icon"><Zap className="h-4 w-4" /></div>
             <div><p className="font-medium text-white text-sm">Route a prompt</p><p className="text-[11px] text-zinc-500">See how {model.displayName} ranks</p></div>
           </Link>
