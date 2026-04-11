@@ -1,0 +1,15 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+sqlalchemy[asyncio]>=2.0.36
+aiosqlite>=0.20.0
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+python-dotenv>=1.0.1
+# Optional — Tier 2 enrichment (OpenAI batched classifier, gpt-4o-mini by
+# default). The panel still works without a key; capture_event() falls
+# back to heuristic labels.
+openai>=1.40.0
+# Postgres drivers — used when DATABASE_URL points at Supabase / Neon /
+# Railway Postgres. Local dev keeps running on SQLite via aiosqlite.
+asyncpg>=0.29.0
+psycopg[binary]>=3.2.0
