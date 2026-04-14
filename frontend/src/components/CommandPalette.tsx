@@ -4,11 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Command,
+  Compass,
+  Database,
   Eye,
   FileText,
+  Hash,
   Layers,
   Search,
   Shield,
+  Sparkles,
   Zap,
 } from "lucide-react";
 
@@ -47,6 +51,20 @@ export function CommandPalette() {
         hint: "Route a new prompt",
         icon: Zap,
         run: () => router.push("/"),
+      },
+      {
+        id: "go-panel",
+        label: "Open Intelligence Terminal",
+        hint: "Dashboard with full intel",
+        icon: Sparkles,
+        run: () => router.push("/dashboard"),
+      },
+      {
+        id: "go-explorer",
+        label: "Open Explorer",
+        hint: "Search & inspect raw events",
+        icon: Database,
+        run: () => router.push("/explorer"),
       },
       {
         id: "go-models",

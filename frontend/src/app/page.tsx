@@ -14,6 +14,7 @@ import {
   Loader2,
   Zap,
   BarChart3,
+  Compass,
   Lock,
   CheckCircle2,
   TrendingUp,
@@ -90,12 +91,11 @@ const EXAMPLES = [
 const FEATURES = [
   { icon: Database, title: "Models", desc: "24+ frontier models", href: "/models", gradient: "from-cyan-500 to-blue-500" },
   { icon: GitCompare, title: "Compare", desc: "Side-by-side", href: "/compare", gradient: "from-emerald-500 to-teal-500" },
-  { icon: Target, title: "Use Cases", desc: "Real workloads", href: "/use-cases", gradient: "from-amber-500 to-orange-500" },
-  { icon: Brain, title: "Guides", desc: "Expert advice", href: "/guides", gradient: "from-rose-500 to-pink-500" },
+  { icon: Compass, title: "Explorer", desc: "Event search", href: "/explorer", gradient: "from-amber-500 to-orange-500" },
+  { icon: BarChart3, title: "Panel", desc: "Live analytics", href: "/dashboard", gradient: "from-rose-500 to-pink-500" },
   { icon: Lock, title: "Privacy", desc: "Transparent", href: "/privacy", gradient: "from-slate-400 to-slate-500" },
 ];
 
-/* ── Shared UI primitives ─────────────────────────────────────── */
 /* ── Shared UI primitives ─────────────────────────────────────── */
 const PROVIDER_COLORS: Record<string, string> = {
   OpenAI: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
