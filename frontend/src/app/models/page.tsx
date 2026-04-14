@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Loader2,
   Eye,
   FileJson,
   Zap,
@@ -18,17 +17,58 @@ import {
   AlertCircle,
   Sparkles,
   Database,
-  LayoutGrid,
-  List,
 } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { api, ModelInfo } from "@/lib/api";
+import { ALL_MODELS } from "@/lib/data/models";
+import type { ModelProfile } from "@/lib/types";
+import type { ModelInfo } from "@/lib/api";
 
-/* Dynamic reference date: "new" = released within the last 30 days from today */
-const REFERENCE_DATE = new Date().toISOString().slice(0, 10);
+/* Convert local ModelProfile → ModelInfo shape expected by the page */
+function profileToInfo(p: ModelProfile): ModelInfo {
+  return {
+    id: p.id,
+    provider: p.provider,
+    display_name: p.displayName,
+    litellm_model: p.id,
+    strengths: p.intelligence.knownStrengths.slice(0, 3),
+    weaknesses: p.intelligence.knownWeaknesses.slice(0, 3),
+    max_tokens: p.specs.maxOutputTokens,
+    cost_per_1k_input: p.specs.inputPricePer1M / 1000,
+    cost_per_1k_output: p.specs.outputPricePer1M / 1000,
+    avg_latency_ms: Math.round((11 - p.capabilities.speed) * 200),
+    quality_scores: { ...p.capabilities },
+    supports_json_mode: p.specs.supportsJsonMode,
+    supports_vision: p.specs.supportsVision,
+    supports_streaming: p.specs.supportsStreaming,
+    is_active: p.isActive,
+    family: p.family,
+    tier: p.tier,
+    release_date: p.releaseDate,
+    description: p.description,
+    context_window: p.specs.contextWindow,
+    output_token_limit: p.specs.maxOutputTokens,
+    cost_per_1m_input: p.specs.inputPricePer1M,
+    cost_per_1m_output: p.specs.outputPricePer1M,
+    supports_audio: p.specs.supportsAudio,
+    supports_function_calling: p.specs.supportsFunctionCalling,
+    supports_reasoning: p.capabilities.reasoning >= 8,
+    knowledge_cutoff: p.specs.knowledgeCutoff,
+    open_weight: p.tags.includes("open-weight"),
+    best_use_cases: p.intelligence.bestUseCases.slice(0, 4) as unknown as string,
+    worst_use_cases: p.intelligence.worstUseCases.slice(0, 3) as unknown as string,
+    last_verified_at: p.researchMeta.lastEvaluatedDate,
+    is_outdated: p.researchMeta.needsReEvaluation,
+    supports_web_search: p.tags.includes("web-search"),
+    supports_computer_use: p.tags.includes("computer-use"),
+    supports_image_gen: p.tags.includes("image-generation"),
+    supports_realtime: p.tags.includes("realtime"),
+  };
+}
+
+const LOCAL_MODELS: ModelInfo[] = ALL_MODELS.map(profileToInfo);
 
 const PROVIDER_COLORS: Record<string, string> = {
   openai: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
@@ -294,18 +334,9 @@ function ModelCard({ model, onToggle }: { model: ModelInfo; onToggle: (id: strin
    ═══════════════════════════════════════════════════════════════════ */
 
 export default function ModelsPage() {
-  const [models, setModels] = useState<ModelInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [models, setModels] = useState<ModelInfo[]>(LOCAL_MODELS);
   const [filter, setFilter] = useState<FilterTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
-
-  useEffect(() => {
-    api.getModels()
-      .then(setModels)
-      .catch((e) => setError(e?.message || "Failed to load models"))
-      .finally(() => setLoading(false));
-  }, []);
 
   const filteredModels = useMemo(
     () => models.filter((model) => matchesFilter(model, filter) && matchesSearch(model, searchQuery)),
@@ -324,44 +355,9 @@ export default function ModelsPage() {
     return filteredModels.filter((model) => !newModelIds.has(model.id));
   }, [filteredModels, newModels.length, newModelIds]);
 
-  const handleToggle = async (id: string, active: boolean) => {
+  const handleToggle = (id: string, active: boolean) => {
     setModels((prev) => prev.map((m) => (m.id === id ? { ...m, is_active: active } : m)));
-    try { await api.updateModel(id, { is_active: active }); }
-    catch { setModels((prev) => prev.map((m) => (m.id === id ? { ...m, is_active: !active } : m))); }
   };
-
-  if (loading) {
-    return (
-      <motion.div
-        className="flex items-center justify-center py-20"
-        initial={{ opacity: 0, scale: 0.8 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.3 }}
-      >
-        <Loader2 className="h-6 w-6 animate-spin text-violet-400" />
-      </motion.div>
-    );
-  }
-
-  if (error) {
-    return (
-      <motion.div
-        className="flex flex-col items-center justify-center gap-3 py-20"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <AlertCircle className="h-8 w-8 text-red-400" />
-        <p className="text-sm font-medium text-zinc-300">Failed to load models</p>
-        <p className="text-[11px] text-zinc-500 max-w-sm text-center">{error}</p>
-        <button
-          onClick={() => { setError(null); setLoading(true); api.getModels().then(setModels).catch((e) => setError(e?.message)).finally(() => setLoading(false)); }}
-          className="mt-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-500 transition-colors"
-        >
-          Retry
-        </button>
-      </motion.div>
-    );
-  }
 
   return (
     <div className="space-y-8">

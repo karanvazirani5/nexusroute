@@ -153,7 +153,7 @@ export default function MethodologyPage() {
         <DocSection title="Reproducibility" icon={Code} step={7}>
           <p className="text-xs text-zinc-400">
             The instrumentation layer is part of this repository. The endpoints that power this methodology page and the{" "}
-            <Link href="/dashboard" className="text-violet-400 hover:text-violet-300 transition-colors">internal dashboard</Link> are open source.
+            <Link href="/models" className="text-violet-400 hover:text-violet-300 transition-colors">model registry</Link> are open source.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {[

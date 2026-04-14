@@ -11,24 +11,16 @@ import {
   Brain,
   GitCompare,
   Database,
-  Trophy,
   Loader2,
   Zap,
-  Compass,
   BarChart3,
   Lock,
-  DollarSign,
-  Server,
   CheckCircle2,
   TrendingUp,
   Shield,
   Send,
   Target,
-  Eye,
-  Share2,
-  ChevronRight,
   ChevronDown,
-  Copy,
   Check,
   Lightbulb,
   AlertTriangle,
@@ -39,15 +31,12 @@ import { Badge } from "@/components/ui/badge";
 import { analyzePromptRemote } from "@/lib/engine/analyzer";
 import { ALL_MODELS } from "@/lib/data/models";
 import { captureEvent, recordOutcome, submitFeedback } from "@/lib/telemetry";
-import PromptRewriteCard from "@/components/PromptRewriteCard";
-import FeedbackWidget from "@/components/FeedbackWidget";
-import ConfidenceBand from "@/components/ConfidenceBand";
+import { ResultsView } from "@/components/ResultsView";
 import OnboardingFlow from "@/components/OnboardingFlow";
 import OnboardingNudge from "@/components/OnboardingNudge";
-import ProductionReadiness from "@/components/ProductionReadiness";
 import { useAuthFetch } from "@/lib/auth";
 import { usePreferences } from "@/lib/preferences";
-import type { AnalysisResult, TrackRecommendation } from "@/lib/types";
+import type { AnalysisResult } from "@/lib/types";
 
 /* ── TYPEWRITER PLACEHOLDERS ────────────────────────────────────── */
 const PLACEHOLDERS = [
@@ -101,11 +90,12 @@ const EXAMPLES = [
 const FEATURES = [
   { icon: Database, title: "Models", desc: "24+ frontier models", href: "/models", gradient: "from-cyan-500 to-blue-500" },
   { icon: GitCompare, title: "Compare", desc: "Side-by-side", href: "/compare", gradient: "from-emerald-500 to-teal-500" },
-  { icon: Compass, title: "Explorer", desc: "Event search", href: "/explorer", gradient: "from-amber-500 to-orange-500" },
-  { icon: BarChart3, title: "Panel", desc: "Live analytics", href: "/dashboard", gradient: "from-rose-500 to-pink-500" },
+  { icon: Target, title: "Use Cases", desc: "Real workloads", href: "/use-cases", gradient: "from-amber-500 to-orange-500" },
+  { icon: Brain, title: "Guides", desc: "Expert advice", href: "/guides", gradient: "from-rose-500 to-pink-500" },
   { icon: Lock, title: "Privacy", desc: "Transparent", href: "/privacy", gradient: "from-slate-400 to-slate-500" },
 ];
 
+/* ── Shared UI primitives ─────────────────────────────────────── */
 /* ── Shared UI primitives ─────────────────────────────────────── */
 const PROVIDER_COLORS: Record<string, string> = {
   OpenAI: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
@@ -117,214 +107,7 @@ const PROVIDER_COLORS: Record<string, string> = {
   Meta: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
   Alibaba: "bg-amber-500/10 text-amber-400 border-amber-500/20",
 };
-const TIER_COLORS: Record<string, string> = {
-  frontier: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  mid: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  budget: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
-  specialized: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-};
-const IMPORTANCE_STYLES: Record<string, { bg: string }> = {
-  Critical: { bg: "bg-red-500" }, Important: { bg: "bg-orange-500" },
-  Moderate: { bg: "bg-blue-500" }, Low: { bg: "bg-zinc-500" },
-};
 
-function PBadge({ provider }: { provider: string }) {
-  return <Badge variant="outline" className={`${PROVIDER_COLORS[provider] ?? "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"} text-[10px]`}>{provider}</Badge>;
-}
-function TBadge({ tier }: { tier: string }) {
-  return <Badge variant="outline" className={`${TIER_COLORS[tier] ?? "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"} text-[10px] capitalize`}>{tier}</Badge>;
-}
-
-/* ── Score Ring ────────────────────────────────────────────────── */
-function ScoreRing({ score, size = 100 }: { score: number; size?: number }) {
-  const r = size * 0.4; const sw = size * 0.06; const c = 2 * Math.PI * r;
-  const color = score >= 80 ? "#34d399" : score >= 60 ? "#60a5fa" : score >= 40 ? "#fbbf24" : "#f87171";
-  return (
-    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth={sw} />
-        <motion.circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={sw}
-          strokeLinecap="round" strokeDasharray={c}
-          initial={{ strokeDashoffset: c }} animate={{ strokeDashoffset: c - (score / 100) * c }}
-          transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1], delay: 0.2 }} />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-2xl font-black text-white">{score}</span>
-        <span className="text-[8px] font-bold uppercase tracking-wider text-zinc-500">/ 100</span>
-      </div>
-    </div>
-  );
-}
-
-/* ── Collapsible ────────────────────────────────────────────────── */
-function Collapsible({ title, children, defaultOpen = false, badge }: { title: string; children: React.ReactNode; defaultOpen?: boolean; badge?: React.ReactNode }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="rounded-2xl border border-white/[0.06] bg-white/[0.01] overflow-hidden">
-      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-white/[0.02]">
-        <motion.div animate={{ rotate: open ? 90 : 0 }} transition={{ duration: 0.2 }}>
-          <ChevronRight className="h-3.5 w-3.5 text-zinc-500" />
-        </motion.div>
-        <span className="text-sm font-semibold text-zinc-200 flex-1">{title}</span>
-        {badge}
-      </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3 }}>
-            <div className="px-5 pb-5">{children}</div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-/* ── Track Card ─────────────────────────────────────────────────── */
-function TrackCard({ title, track, color }: { title: string; track: TrackRecommendation | null; color: string }) {
-  if (!track) return (
-    <div className="rounded-2xl border border-white/[0.04] bg-white/[0.01] p-5">
-      <p className="text-sm font-semibold text-zinc-400">{title}</p>
-      <p className="mt-1 text-xs text-zinc-600">Not applicable for this prompt.</p>
-    </div>
-  );
-  return (
-    <div className={`rounded-2xl border ${color} bg-[#0a0a1f]/60 p-5 space-y-3`}>
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-bold text-white">{title}</p>
-        <PBadge provider={track.provider} />
-      </div>
-      <p className="text-lg font-black text-violet-300">{track.modelName}</p>
-      <p className="text-[11px] text-zinc-500">{track.metricDetail}</p>
-      <div className="space-y-2 text-xs">
-        <div>
-          <p className="text-[10px] font-bold text-emerald-400/80 uppercase tracking-wider">Why it won</p>
-          <ul className="mt-1 list-inside list-disc text-zinc-400">{track.whyWon.map((x, i) => <li key={i}>{x}</li>)}</ul>
-        </div>
-        {track.whyAlternativesLost.length > 0 && (
-          <div>
-            <p className="text-[10px] font-bold text-red-400/80 uppercase tracking-wider">Why #2 lost</p>
-            <ul className="mt-1 list-inside list-disc text-zinc-400">{track.whyAlternativesLost.map((x, i) => <li key={i}>{x}</li>)}</ul>
-          </div>
-        )}
-        {track.tradeoffs.length > 0 && (
-          <div>
-            <p className="text-[10px] font-bold text-amber-400/80 uppercase tracking-wider">Tradeoffs</p>
-            <ul className="mt-1 list-inside list-disc text-zinc-400">{track.tradeoffs.map((x, i) => <li key={i}>{x}</li>)}</ul>
-          </div>
-        )}
-        {track.switchToAlternativeIf.length > 0 && (
-          <div>
-            <p className="text-[10px] font-bold text-blue-400/80 uppercase tracking-wider">What would change the winner</p>
-            <ul className="mt-1 list-inside list-disc text-zinc-400">{track.switchToAlternativeIf.map((x, i) => <li key={i}>{x}</li>)}</ul>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ── Deep Analysis ──────────────────────────────────────────────── */
-function DeepAnalysis({ result }: { result: AnalysisResult }) {
-  const a = result.advisor;
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2.5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500/10">
-          <Eye className="h-4 w-4 text-emerald-400" />
-        </div>
-        <div>
-          <h2 className="text-sm font-bold text-white">Deep Analysis</h2>
-          <p className="text-[10px] text-zinc-500">Full reasoning pipeline</p>
-        </div>
-      </div>
-
-      <Collapsible title="Prompt Understanding" defaultOpen>
-        <p className="text-sm text-zinc-300 mb-2">{a.interpretation.jobToBeDone}</p>
-        <div className="flex flex-wrap gap-4 text-xs text-zinc-500">
-          <span><span className="text-zinc-400">Primary:</span> {a.interpretation.primaryTasks.map(t => t.label).join(" · ") || "—"}</span>
-          <span><span className="text-zinc-400">Secondary:</span> {a.interpretation.secondaryTasks.map(t => t.label).join(" · ") || "—"}</span>
-        </div>
-      </Collapsible>
-
-      <Collapsible title="Eligibility Filtering" badge={<span className="panel-chip chip-sm">{a.eligibilityExclusions.length} excluded</span>}>
-        <div className="max-h-48 space-y-2 overflow-y-auto panel-scroll text-xs">
-          {a.eligibilityExclusions.length === 0 ? <p className="text-zinc-500">All models passed.</p> :
-            a.eligibilityExclusions.slice(0, 15).map(e => (
-              <div key={e.modelId} className="border-b border-white/[0.03] pb-2 last:border-0">
-                <p className="font-semibold text-zinc-300">{e.modelName}</p>
-                <ul className="list-inside list-disc text-zinc-500">{e.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
-              </div>
-            ))
-          }
-        </div>
-      </Collapsible>
-
-      <Collapsible title="Multi-Track Winners" defaultOpen>
-        <div className="grid gap-3 md:grid-cols-2">
-          <TrackCard title="Best Quality" track={a.tracks.bestAbsolute} color="border-yellow-500/15" />
-          <TrackCard title="Best Value" track={a.tracks.bestValue} color="border-emerald-500/15" />
-          <TrackCard title="Lowest Latency" track={a.tracks.bestLowLatency} color="border-cyan-500/15" />
-          <TrackCard title="Open / Self-Hosted" track={a.tracks.bestOpenSelfHosted} color="border-indigo-500/15" />
-        </div>
-      </Collapsible>
-
-      <Collapsible title="Confidence & Uncertainty" defaultOpen>
-        <div className="grid gap-2 sm:grid-cols-2 text-sm">
-          {[
-            ["Interpretation", `~${Math.round(a.uncertainty.interpretationConfidence * 100)}%`],
-            ["Ranking", `~${Math.round(a.uncertainty.rankingConfidence * 100)}%`],
-            ["Top score gap", a.uncertainty.topScoreGap.toFixed(1)],
-            ["Marginal winner", a.uncertainty.isMarginalWinner ? "Yes" : "No"],
-          ].map(([k, v]) => (
-            <div key={k} className="flex justify-between rounded-xl bg-white/[0.02] px-4 py-2.5">
-              <span className="text-zinc-500">{k}</span>
-              <span className={`font-semibold ${v === "Yes" ? "text-amber-400" : "text-zinc-200"}`}>{v}</span>
-            </div>
-          ))}
-        </div>
-      </Collapsible>
-    </div>
-  );
-}
-
-/* ── Sidebar ────────────────────────────────────────────────────── */
-function Sidebar({ result }: { result: AnalysisResult }) {
-  const reqs = result.keyRequirements.filter(r => r.importance !== "Not needed");
-  const interp = result.advisor.interpretation;
-  const tc = result.taskClassification;
-  return (
-    <div className="space-y-5">
-      {reqs.length > 0 && (
-        <div className="panel-card p-5 space-y-4">
-          <h3 className="flex items-center gap-2 text-sm font-bold text-white"><Target className="h-4 w-4 text-violet-400" />Requirements</h3>
-          {reqs.map((req, i) => (
-            <div key={i} className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-300">{req.label}</span>
-                <span className="text-[10px] text-zinc-500 text-data">{Math.round(req.weight * 100)}%</span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.04]">
-                <motion.div className={`h-full rounded-full ${(IMPORTANCE_STYLES[req.importance] ?? IMPORTANCE_STYLES.Low).bg}`}
-                  initial={{ width: 0 }} animate={{ width: `${Math.round(req.weight * 100)}%` }}
-                  transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1], delay: i * 0.05 }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="panel-card p-5 space-y-4">
-        <h3 className="flex items-center gap-2 text-sm font-bold text-white"><Brain className="h-4 w-4 text-pink-400" />Task Analysis</h3>
-        <p className="text-sm text-zinc-300">{interp.jobToBeDone}</p>
-        <div className="grid grid-cols-2 gap-3 text-xs">
-          <div><p className="text-zinc-500">Category</p><p className="text-zinc-200 font-semibold">{tc.parentCategory}</p></div>
-          <div><p className="text-zinc-500">Domain</p><p className="text-zinc-200 font-semibold">{result.promptContext.domain ?? "General"}</p></div>
-          <div><p className="text-zinc-500">Input tokens</p><p className="text-zinc-200 font-mono">{result.promptContext.estimatedInputTokens.toLocaleString()}</p></div>
-          <div><p className="text-zinc-500">Output tokens</p><p className="text-zinc-200 font-mono">{result.promptContext.estimatedOutputTokens.toLocaleString()}</p></div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ── Telemetry helper ─────────────────────────────────────────── */
 function routingCapture(analysis: AnalysisResult) {
@@ -531,13 +314,7 @@ function HomePageInner() {
     setShared(true); setTimeout(() => setShared(false), 2500);
   }, [result]);
 
-  // Override capture state (Sprint 1.2)
-  const [overrideTarget, setOverrideTarget] = useState<string | null>(null);
-  const [overrideReason, setOverrideReason] = useState<string | null>(null);
-  const [overrideSubmitted, setOverrideSubmitted] = useState(false);
-
   const top = result?.recommendations[0];
-  const runnerUps = result?.recommendations.slice(1, 5) ?? [];
 
   return (
     <div className="space-y-24">
@@ -746,219 +523,19 @@ function HomePageInner() {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-              className="max-w-5xl mx-auto mt-12 space-y-8"
             >
-              {/* Task badge + confidence band */}
-              <div className="flex items-center justify-center gap-3 flex-wrap">
-                <span className="panel-chip panel-chip-active">{result.taskClassification.primaryLabel}</span>
-                <ConfidenceBand rawConfidence={result.confidence} compact showAdvice={false} />
-              </div>
-
-              <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
-                <div className="space-y-6">
-                  {/* Winner */}
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.97 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.1 }}
-                    className="relative rounded-3xl border border-yellow-500/20 bg-gradient-to-br from-yellow-500/[0.04] via-[#0c0c20] to-[#0c0c20] overflow-hidden"
-                    style={{ boxShadow: "0 0 80px -20px rgba(250,204,21,0.12)" }}
-                  >
-                    <div className="p-8 flex flex-col md:flex-row items-center gap-8">
-                      <ScoreRing score={top.score} size={110} />
-                      <div className="flex-1 text-center md:text-left">
-                        <div className="flex items-center gap-2 justify-center md:justify-start mb-1">
-                          <Trophy className="h-4 w-4 text-yellow-400" />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-yellow-400">Best Match</span>
-                        </div>
-                        <h2 className="text-3xl font-black text-white mb-2">{top.modelName}</h2>
-                        <p className="text-sm text-zinc-400 mb-2">{top.reasoning[0]}</p>
-                        {runnerUps[0] && (
-                          <p className="text-[11px] text-zinc-500 mb-4">
-                            <span className="text-zinc-400 font-medium">vs {runnerUps[0].modelName}:</span>{" "}
-                            {runnerUps[0].reasoning[0]}
-                          </p>
-                        )}
-                        <div className="flex flex-wrap gap-2 justify-center md:justify-start">
-                          <PBadge provider={top.provider} /><TBadge tier={top.tier} />
-                          <span className="panel-chip chip-sm">In: {top.pricingEstimate.inputCost}</span>
-                          <span className="panel-chip chip-sm">Out: {top.pricingEstimate.outputCost}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-
-                  {/* Actions */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button size="sm" variant="outline" onClick={() => void handleCopy()} className="gap-1.5 rounded-xl">
-                      {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                      {copied ? "Copied!" : "Copy ID"}
-                    </Button>
-                    <Link href={`/models/${top.modelId}`}><Button size="sm" variant="outline" className="gap-1.5 rounded-xl"><Database className="h-3 w-3" />View Model</Button></Link>
-                    {runnerUps[0] && <Link href="/compare"><Button size="sm" variant="outline" className="gap-1.5 rounded-xl"><GitCompare className="h-3 w-3" />Compare</Button></Link>}
-                    <Button size="sm" variant="outline" onClick={() => void handleShare()} className="gap-1.5 rounded-xl">
-                      {shared ? <Check className="h-3 w-3 text-emerald-400" /> : <Share2 className="h-3 w-3" />}
-                      {shared ? "Link copied!" : "Share"}
-                    </Button>
-                    <button onClick={() => { setPrompt(""); setResult(null); setEventId(null); inputRef.current?.focus(); }}
-                      className="ml-auto text-sm text-zinc-500 hover:text-violet-300 transition-colors font-semibold">
-                      Try another
-                    </button>
-                  </div>
-
-                  {/* Feedback */}
-                  <FeedbackWidget
-                    eventId={eventId}
-                    recommendedModelId={top.modelId}
-                    recommendedModelName={top.modelName}
-                    allModelNames={ALL_MODELS.filter(m => m.isActive).map(m => ({ id: m.id, name: m.displayName }))}
-                    startedAt={startedAt.current}
-                  />
-
-                  {/* Confidence detail */}
-                  <ConfidenceBand rawConfidence={result.confidence} />
-
-                  {/* Onboarding nudge */}
-                  <OnboardingNudge promptCount={promptCount} />
-
-                  {/* Production readiness */}
-                  <ProductionReadiness result={result} />
-
-                  {/* Prompt Rewrite */}
-                  {prompt.trim() && top && (
-                    <PromptRewriteCard
-                      originalPrompt={prompt.trim()}
-                      modelId={top.modelId}
-                      modelDisplayName={top.modelName}
-                    />
-                  )}
-
-                  {/* Runner-ups with override capture */}
-                  {runnerUps.length > 0 && (
-                    <div>
-                      <h3 className="panel-label mb-3 flex items-center gap-2"><BarChart3 className="h-3.5 w-3.5 text-violet-400" />Alternatives</h3>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        {runnerUps.map((rec, i) => (
-                          <motion.div key={rec.modelId} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 + i * 0.08 }}>
-                            <div
-                              onClick={() => { if (overrideTarget !== rec.modelId) { setOverrideTarget(rec.modelId); setOverrideReason(null); setOverrideSubmitted(false); } }}
-                              className="panel-card panel-card-hover p-4 cursor-pointer"
-                            >
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/[0.06] text-[10px] font-black text-zinc-400">{rec.rank}</span>
-                                  <span className="font-bold text-white text-sm">{rec.modelName}</span>
-                                </div>
-                                <span className="text-sm font-black text-data text-zinc-300">{rec.score}</span>
-                              </div>
-                              <p className="text-[11px] text-zinc-500 line-clamp-2">{rec.reasoning[0]}</p>
-                              <div className="mt-2 flex gap-1.5"><PBadge provider={rec.provider} /><TBadge tier={rec.tier} /></div>
-                            </div>
-                            {/* Override capture slide-down */}
-                            <AnimatePresence>
-                              {overrideTarget === rec.modelId && !overrideSubmitted && (
-                                <motion.div
-                                  initial={{ height: 0, opacity: 0 }}
-                                  animate={{ height: "auto", opacity: 1 }}
-                                  exit={{ height: 0, opacity: 0 }}
-                                  transition={{ duration: 0.2 }}
-                                  className="overflow-hidden"
-                                >
-                                  <div className="mt-1 rounded-xl border border-violet-500/15 bg-violet-500/[0.03] p-3 space-y-2">
-                                    <p className="text-[11px] font-semibold text-violet-300">What made you choose this instead?</p>
-                                    <div className="flex flex-wrap gap-1">
-                                      {["cheaper","faster","better_coding","better_writing","better_reasoning","privacy","habit"].map(r => (
-                                        <button key={r} onClick={(e) => { e.stopPropagation(); setOverrideReason(overrideReason === r ? null : r); }}
-                                          className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition-all border ${
-                                            overrideReason === r
-                                              ? "bg-violet-500/15 text-violet-300 border-violet-500/30"
-                                              : "bg-white/[0.03] text-zinc-500 border-white/[0.06] hover:text-zinc-300"
-                                          }`}>
-                                          {r.replace("_", " ")}
-                                        </button>
-                                      ))}
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setOverrideSubmitted(true);
-                                          if (eventId && top) {
-                                            submitFeedback({
-                                              event_id: eventId,
-                                              feedback_type: "override",
-                                              recommended_model: top.modelId,
-                                              selected_model: rec.modelId,
-                                              override_reason: overrideReason ?? undefined,
-                                              time_to_feedback_ms: Date.now() - startedAt.current,
-                                            });
-                                            recordOutcome(eventId, {
-                                              user_accepted_recommendation: false,
-                                              user_overrode_recommendation: true,
-                                              selected_model: rec.modelId,
-                                              override_reason: overrideReason ?? "other",
-                                              time_to_decision_ms: Date.now() - startedAt.current,
-                                            });
-                                          }
-                                        }}
-                                        className="rounded-lg bg-violet-500/15 border border-violet-500/25 px-3 py-1.5 text-[11px] font-semibold text-violet-300 hover:bg-violet-500/20 transition-all"
-                                      >
-                                        Submit
-                                      </button>
-                                      <button onClick={(e) => { e.stopPropagation(); setOverrideTarget(null); }}
-                                        className="text-[11px] text-zinc-600 hover:text-zinc-400">
-                                        Dismiss
-                                      </button>
-                                    </div>
-                                  </div>
-                                </motion.div>
-                              )}
-                              {overrideTarget === rec.modelId && overrideSubmitted && (
-                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-1 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.03] p-2 flex items-center gap-2">
-                                  <Check className="h-3 w-3 text-emerald-400" />
-                                  <span className="text-[11px] text-emerald-300 font-medium">Thanks!</span>
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          </motion.div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Budget / Open Weight */}
-                  {(result.budgetAlternative || result.openWeightAlternative) && (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {result.budgetAlternative && (
-                        <div className="panel-card p-4 border-emerald-500/10">
-                          <div className="flex items-center gap-2 mb-2">
-                            <DollarSign className="h-4 w-4 text-emerald-400" />
-                            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">Budget Pick</span>
-                          </div>
-                          <p className="font-bold text-white">{result.budgetAlternative.modelName}</p>
-                          <p className="text-[11px] text-zinc-500 mt-1">{result.budgetAlternative.reasoning[0]}</p>
-                        </div>
-                      )}
-                      {result.openWeightAlternative && (
-                        <div className="panel-card p-4 border-indigo-500/10">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Server className="h-4 w-4 text-indigo-400" />
-                            <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400">Open Weight</span>
-                          </div>
-                          <p className="font-bold text-white">{result.openWeightAlternative.modelName}</p>
-                          <p className="text-[11px] text-zinc-500 mt-1">{result.openWeightAlternative.reasoning[0]}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Deep Analysis */}
-                  <DeepAnalysis result={result} />
-                </div>
-
-                {/* Sidebar */}
-                <Sidebar result={result} />
-              </div>
+              <OnboardingNudge promptCount={promptCount} />
+              <ResultsView
+                result={result}
+                prompt={prompt}
+                eventId={eventId}
+                startedAt={startedAt.current}
+                onTryAnother={() => { setPrompt(""); setResult(null); setEventId(null); inputRef.current?.focus(); }}
+                onCopyId={handleCopy}
+                onShare={handleShare}
+                copied={copied}
+                shared={shared}
+              />
             </motion.div>
           )}
         </AnimatePresence>

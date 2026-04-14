@@ -4,15 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Command,
-  Compass,
-  Database,
   Eye,
   FileText,
-  Hash,
   Layers,
   Search,
   Shield,
-  Sparkles,
   Zap,
 } from "lucide-react";
 
@@ -53,20 +49,6 @@ export function CommandPalette() {
         run: () => router.push("/"),
       },
       {
-        id: "go-panel",
-        label: "Open Intelligence Terminal",
-        hint: "Dashboard with full intel",
-        icon: Sparkles,
-        run: () => router.push("/dashboard"),
-      },
-      {
-        id: "go-explorer",
-        label: "Open Explorer",
-        hint: "Search & inspect raw events",
-        icon: Database,
-        run: () => router.push("/explorer"),
-      },
-      {
         id: "go-models",
         label: "Browse model registry",
         icon: Layers,
@@ -90,36 +72,6 @@ export function CommandPalette() {
         label: "Privacy & consent",
         icon: Shield,
         run: () => router.push("/privacy"),
-      },
-      {
-        id: "go-constellation",
-        label: "Jump to constellation",
-        icon: Compass,
-        run: () => {
-          router.push("/dashboard");
-          setTimeout(
-            () =>
-              document
-                .getElementById("sec-constellation")
-                ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-            200
-          );
-        },
-      },
-      {
-        id: "go-words",
-        label: "Jump to word intelligence",
-        icon: Hash,
-        run: () => {
-          router.push("/dashboard");
-          setTimeout(
-            () =>
-              document
-                .getElementById("sec-language")
-                ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-            200
-          );
-        },
       },
     ],
     [router]

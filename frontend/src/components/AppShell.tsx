@@ -6,35 +6,29 @@ import { useState, type ReactNode } from "react";
 import { CommandPaletteTrigger } from "@/components/CommandPaletteTrigger";
 import {
   Sparkles,
-  LayoutDashboard,
   Database,
   ArrowLeftRight,
   BookOpen,
   Shield,
   Menu,
   X,
-  Compass,
   Clock,
   Settings2,
   GraduationCap,
-  History,
   Target,
 } from "lucide-react";
 import { UserButton, SignInButton, useAuth } from "@clerk/nextjs";
 
 const NAV = [
   { href: "/", label: "Advisor", icon: Sparkles },
-  { href: "/dashboard", label: "Panel", icon: LayoutDashboard },
-  { href: "/explorer", label: "Explorer", icon: Compass },
   { href: "/models", label: "Models", icon: Database },
   { href: "/guides", label: "Guides", icon: GraduationCap },
   { href: "/use-cases", label: "Use Cases", icon: Target },
   { href: "/compare", label: "Compare", icon: ArrowLeftRight },
-  { href: "/changelog", label: "Changelog", icon: History },
   { href: "/methodology", label: "How it works", icon: BookOpen },
   { href: "/privacy", label: "Privacy", icon: Shield },
-  { href: "/history", label: "History", icon: Clock },
-  { href: "/settings", label: "Settings", icon: Settings2 },
+  { href: "/history", label: "History", icon: Clock, auth: true },
+  { href: "/settings", label: "Settings", icon: Settings2, auth: true },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -72,7 +66,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           {/* Nav */}
           <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-            {NAV.map((item) => {
+            {NAV.filter((item) => !("auth" in item && item.auth) || isSignedIn).map((item) => {
               const active = isActive(item.href);
               const Icon = item.icon;
               return (
@@ -116,7 +110,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <button onClick={() => setMobileOpen(false)} className="p-1.5 text-zinc-400 hover:text-white"><X className="h-5 w-5" /></button>
             </div>
             <nav className="flex-1 px-3 py-4 space-y-1">
-              {NAV.map((item) => {
+              {NAV.filter((item) => !("auth" in item && item.auth) || isSignedIn).map((item) => {
                 const active = isActive(item.href);
                 const Icon = item.icon;
                 return (
