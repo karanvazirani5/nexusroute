@@ -47,7 +47,7 @@ const SEED_PROMPTS: Record<string, Record<string, string>> = {
 };
 
 interface OnboardingFlowProps {
-  onComplete: (seedPrompt: string, track?: string) => void;
+  onComplete: (seedPrompt?: string, track?: string) => void;
   onSkip: () => void;
 }
 

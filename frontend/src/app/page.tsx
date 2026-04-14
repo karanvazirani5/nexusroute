@@ -346,19 +346,51 @@ function HomePageInner() {
   const [shared, setShared] = useState(false);
   const [promptCount, setPromptCount] = useState(0);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [activeProviders, setActiveProviders] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
   const startedAt = useRef(0);
   const placeholder = useTypewriter(PLACEHOLDERS);
   const searchParams = useSearchParams();
   const { authFetch, isSignedIn } = useAuthFetch();
   const { preferences } = usePreferences();
 
-  // Show onboarding on first visit
+  // Show onboarding only for signed-in users who haven't completed it
   useEffect(() => {
-    if (typeof window !== "undefined" && !localStorage.getItem("nr_onboarding_completed")) {
+    if (typeof window !== "undefined" && isSignedIn && !localStorage.getItem("nr_onboarding_completed")) {
       setShowOnboarding(true);
     }
+  }, [isSignedIn]);
+
+  // Load saved provider selections from localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("nr_onboarding_providers");
+      if (stored) {
+        try {
+          const providers = JSON.parse(stored) as string[];
+          if (Array.isArray(providers) && providers.length > 0) {
+            setActiveProviders(new Set(providers));
+          }
+        } catch { /* ignore */ }
+      }
+    }
   }, []);
+
+  const toggleProviderFilter = (id: string) => {
+    setActiveProviders((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      if (typeof window !== "undefined") {
+        if (next.size > 0) {
+          localStorage.setItem("nr_onboarding_providers", JSON.stringify([...next]));
+        } else {
+          localStorage.removeItem("nr_onboarding_providers");
+        }
+      }
+      return next;
+    });
+  };
 
   // Workflow presets
   const [presets, setPresets] = useState<Array<{ preset_id: string; name: string; slug: string; icon: string | null; is_system: boolean; default_track: string; excluded_providers: string[]; preferred_providers: string[]; budget_ceiling_per_1m: number | null; prefer_open_weight: boolean; min_reasoning_score: number | null; min_coding_score: number | null; require_function_calling: boolean; require_structured_output: boolean; require_vision: boolean; require_long_context: boolean }>>([]);
@@ -382,17 +414,9 @@ function HomePageInner() {
       defaultTrack?: string;
     } = {};
 
-    // Layer 0: onboarding provider selection (localStorage)
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("nr_onboarding_providers");
-      if (stored) {
-        try {
-          const providers = JSON.parse(stored) as string[];
-          if (Array.isArray(providers) && providers.length > 0) {
-            overrides.allowedProviders = providers;
-          }
-        } catch { /* ignore malformed */ }
-      }
+    // Layer 0: provider filter from top-bar buttons
+    if (activeProviders.size > 0) {
+      overrides.allowedProviders = [...activeProviders];
     }
 
     // Layer 1: user preferences
@@ -415,7 +439,7 @@ function HomePageInner() {
     }
 
     return Object.keys(overrides).length > 0 ? overrides : undefined;
-  }, [preferences, presets, activePreset]);
+  }, [preferences, presets, activePreset, activeProviders]);
 
   const analyze = useCallback(async (text: string) => {
     if (!text.trim()) return;
@@ -424,6 +448,8 @@ function HomePageInner() {
       const overrides = buildOverrides();
       const r = await analyzePromptRemote(text.trim(), ALL_MODELS, overrides);
       setResult(r);
+      // Auto-scroll to results
+      setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
       captureEvent({ prompt: text.trim(), routing: routingCapture(r) }).then(ev => { if (ev) setEventId(ev.event_id); }).catch(() => {});
 
       // Auto-save to history for signed-in users
@@ -520,10 +546,18 @@ function HomePageInner() {
         {showOnboarding && !result && (
           <section className="relative pt-8">
             <OnboardingFlow
-              onComplete={(seedPrompt, track) => {
+              onComplete={() => {
                 setShowOnboarding(false);
-                setPrompt(seedPrompt);
-                void analyze(seedPrompt);
+                // Reload provider selections from localStorage (set by OnboardingFlow)
+                const stored = localStorage.getItem("nr_onboarding_providers");
+                if (stored) {
+                  try {
+                    const providers = JSON.parse(stored) as string[];
+                    if (Array.isArray(providers) && providers.length > 0) {
+                      setActiveProviders(new Set(providers));
+                    }
+                  } catch { /* ignore */ }
+                }
               }}
               onSkip={() => setShowOnboarding(false)}
             />
@@ -586,6 +620,32 @@ function HomePageInner() {
           transition={{ delay: 0.4, duration: 0.7 }}
           className="relative max-w-2xl mx-auto"
         >
+          {/* Provider filter pills */}
+          <div className="flex items-center gap-1.5 mb-3 overflow-x-auto pb-1 scrollbar-none justify-center flex-wrap">
+            <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-zinc-600 mr-1">Models:</span>
+            {(["OpenAI", "Anthropic", "Google", "xAI", "Mistral", "DeepSeek"] as const).map((prov) => (
+              <button
+                key={prov}
+                onClick={() => toggleProviderFilter(prov)}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all whitespace-nowrap border ${
+                  activeProviders.has(prov)
+                    ? `${PROVIDER_COLORS[prov]} ring-1 ring-current/20`
+                    : "bg-white/[0.03] text-zinc-500 border-white/[0.06] hover:text-zinc-300 hover:border-white/10"
+                }`}
+              >
+                {prov}
+              </button>
+            ))}
+            {activeProviders.size > 0 && (
+              <button
+                onClick={() => { setActiveProviders(new Set()); localStorage.removeItem("nr_onboarding_providers"); }}
+                className="shrink-0 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors ml-1"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
           <div className="absolute -inset-1 rounded-[28px] bg-gradient-to-r from-violet-500/20 via-indigo-500/20 to-purple-500/20 blur-xl opacity-60 pointer-events-none" />
           <div className="relative rounded-[24px] border border-white/[0.1] bg-[#0c0c20]/90 backdrop-blur-2xl shadow-2xl shadow-black/40 overflow-hidden">
             <textarea
@@ -682,6 +742,7 @@ function HomePageInner() {
         <AnimatePresence>
           {result && top && (
             <motion.div
+              ref={resultRef}
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
