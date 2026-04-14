@@ -1,95 +1,63 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Activity } from "lucide-react";
-import { API_BASE, emojiFor } from "@/lib/constants";
+import { Globe, Zap, Beaker, Scale, TrendingUp, Rocket, Handshake, Newspaper } from "lucide-react";
+import type { NewsHeadline } from "@/app/api/news/route";
 
 /**
- * Bloomberg-terminal style live ticker.
+ * AI News Ticker — Bloomberg-terminal style scrolling headlines.
  *
- * Connects to the backend /api/panel/intel/stream SSE endpoint and rolls
- * new events across the screen as they arrive. Connection state is shown
- * as a pulsing indicator: green = connected, amber = reconnecting,
- * zinc = idle (no events yet).
+ * Fetches the latest AI news from /api/news (backed by OpenAI web search)
+ * and scrolls them across the screen. Refreshes every 10 minutes.
  */
 
-interface TickerEvent {
-  event_id: string;
-  created_at?: string;
-  category_primary?: string | null;
-  subcategory?: string | null;
-  preview?: string;
-  recommended_model?: string | null;
-  classifier_confidence?: number | null;
-  complexity_score?: number | null;
-  reasoning_intensity?: number | null;
-  creativity_score?: number | null;
-}
+const CATEGORY_EMOJI: Record<string, string> = {
+  launch: "🚀",
+  research: "🔬",
+  "open-source": "🔓",
+  regulation: "⚖️",
+  industry: "📊",
+  funding: "💰",
+  partnership: "🤝",
+};
+
+const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
 export function LiveTicker() {
-  const [events, setEvents] = useState<TickerEvent[]>([]);
-  const [status, setStatus] = useState<"idle" | "connecting" | "live" | "error">(
-    "connecting"
-  );
-  const sourceRef = useRef<EventSource | null>(null);
+  const [headlines, setHeadlines] = useState<NewsHeadline[]>([]);
+  const [status, setStatus] = useState<"loading" | "live" | "error">("loading");
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    let closed = false;
-
-    function connect() {
-      try {
-        const es = new EventSource(`${API_BASE}/panel/intel/stream`);
-        sourceRef.current = es;
-        setStatus("connecting");
-
-        es.addEventListener("hello", () => {
-          if (!closed) setStatus("live");
-        });
-
-        es.addEventListener("prompt", (e: MessageEvent) => {
-          if (closed) return;
-          try {
-            const data = JSON.parse(e.data) as TickerEvent;
-            setEvents((prev) => [data, ...prev].slice(0, 20));
-            setStatus("live");
-          } catch {
-            /* ignore */
-          }
-        });
-
-        es.onerror = () => {
-          if (closed) return;
-          setStatus("error");
-          es.close();
-          sourceRef.current = null;
-          // Try to reconnect after a short delay.
-          window.setTimeout(() => {
-            if (!closed) connect();
-          }, 2500);
-        };
-      } catch {
+  async function fetchNews() {
+    try {
+      const res = await fetch("/api/news");
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = (await res.json()) as { headlines: NewsHeadline[] };
+      if (data.headlines?.length > 0) {
+        setHeadlines(data.headlines);
+        setStatus("live");
+      } else {
         setStatus("error");
       }
+    } catch {
+      setStatus("error");
     }
+  }
 
-    connect();
+  useEffect(() => {
+    fetchNews();
+    timerRef.current = setInterval(fetchNews, POLL_INTERVAL_MS);
     return () => {
-      closed = true;
-      if (sourceRef.current) {
-        sourceRef.current.close();
-        sourceRef.current = null;
-      }
+      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
 
   const statusColor =
     status === "live"
       ? "bg-emerald-400 shadow-emerald-400/50"
-      : status === "connecting"
+      : status === "loading"
       ? "bg-amber-400 shadow-amber-400/40"
-      : status === "error"
-      ? "bg-red-500 shadow-red-500/40"
-      : "bg-zinc-600";
+      : "bg-red-500 shadow-red-500/40";
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-white/[0.06] bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950">
@@ -100,60 +68,56 @@ export function LiveTicker() {
               status === "live" ? "animate-ping" : ""
             }`}
           />
-          <span className={`relative inline-flex h-2 w-2 rounded-full ${statusColor}`} />
+          <span
+            className={`relative inline-flex h-2 w-2 rounded-full ${statusColor}`}
+          />
         </div>
-        <Activity className="h-3 w-3 text-emerald-400" />
-        <span>Live panel stream</span>
+        <Globe className="h-3 w-3 text-violet-400" />
+        <span>AI News</span>
         <span className="text-zinc-700">·</span>
-        <span>{events.length} events buffered</span>
+        <span>{headlines.length} stories</span>
         <span className="ml-auto text-zinc-600">
           {status === "live"
-            ? "connected"
-            : status === "connecting"
-            ? "connecting…"
-            : status === "error"
-            ? "reconnecting…"
-            : ""}
+            ? "live"
+            : status === "loading"
+            ? "loading…"
+            : "unavailable"}
         </span>
       </div>
       <div className="relative h-10 overflow-hidden">
-        {events.length === 0 ? (
+        {headlines.length === 0 ? (
           <div className="flex h-full items-center px-4 text-xs text-zinc-500">
-            Waiting for events… submit a prompt on the advisor to see this
-            ticker light up.
+            {status === "loading"
+              ? "Loading latest AI news…"
+              : "News temporarily unavailable — check back soon."}
           </div>
         ) : (
-          <div className="marquee-row flex h-full whitespace-nowrap" style={{ minWidth: "max-content" }}>
-            {[...events, ...events].map((e, i) => (
-              <div
-                key={`${e.event_id}-${i}`}
-                className="flex items-center gap-2 px-5 text-xs text-zinc-300"
+          <div
+            className="marquee-row flex h-full whitespace-nowrap"
+            style={{ minWidth: "max-content" }}
+          >
+            {[...headlines, ...headlines].map((h, i) => (
+              <a
+                key={`${h.title.slice(0, 20)}-${i}`}
+                href={h.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-5 text-xs text-zinc-300 hover:text-white transition-colors"
               >
-                <span className="text-base">{emojiFor(e.category_primary)}</span>
-                <span className="font-medium text-violet-300">
-                  {(e.category_primary || "unknown").replace(/_/g, " ")}
+                <span className="text-base">
+                  {CATEGORY_EMOJI[h.category] ?? "📰"}
                 </span>
+                <span className="font-medium text-violet-300">{h.source}</span>
                 <span className="text-zinc-600">·</span>
-                <span className="text-zinc-500">
-                  {(e.subcategory || "—").replace(/_/g, " ")}
+                <span className="max-w-sm truncate text-zinc-400">
+                  {h.title}
                 </span>
-                <span className="text-zinc-600">·</span>
-                <span className="max-w-xs truncate text-zinc-400">
-                  {e.preview}
-                </span>
-                <span className="text-zinc-600">·</span>
-                <span className="text-amber-400/80">
-                  conf {((e.classifier_confidence ?? 0) * 100).toFixed(0)}%
-                </span>
-                <span className="text-zinc-600">·</span>
-                <span className="text-emerald-400/80">→ {e.recommended_model ?? "—"}</span>
                 <span className="mx-3 text-zinc-800">│</span>
-              </div>
+              </a>
             ))}
           </div>
         )}
       </div>
-      {/* marquee animation defined in globals.css as .marquee-row */}
     </div>
   );
 }
