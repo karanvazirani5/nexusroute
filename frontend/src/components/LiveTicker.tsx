@@ -101,6 +101,11 @@ export function LiveTicker() {
         <span>AI News</span>
         <span className="text-zinc-700">·</span>
         <span>{headlines.length} stories</span>
+        {!expanded && (
+          <span className="rounded-full border border-violet-500/20 bg-violet-500/5 px-2 py-0.5 text-[9px] font-medium text-violet-400 normal-case tracking-normal">
+            Click to expand
+          </span>
+        )}
         <span className="ml-auto flex items-center gap-2 text-zinc-600">
           {status === "live"
             ? "live"
@@ -117,7 +122,10 @@ export function LiveTicker() {
 
       {/* ── Scrolling ticker (visible when collapsed) ── */}
       {!expanded && (
-        <div className="relative h-10 overflow-hidden">
+        <div
+          className="relative h-10 overflow-hidden cursor-pointer hover:bg-white/[0.015] transition-colors"
+          onClick={() => setExpanded(true)}
+        >
           {headlines.length === 0 ? (
             <div className="flex h-full items-center px-4 text-xs text-zinc-500">
               {status === "loading"
