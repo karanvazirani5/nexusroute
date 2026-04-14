@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # Freshness settings.
     model_stale_after_days: int = 30
 
+    # Clerk JWT verification — set via CLERK_JWKS_URL env var.
+    # Format: https://<your-clerk-domain>/.well-known/jwks.json
+    clerk_jwks_url: str = ""
+
     # CORS — comma-separated via the ``CORS_ORIGINS`` env var in prod,
     # falls back to localhost for dev.
     #

@@ -11,7 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.models.database import init_db, async_session, ModelRecord
+from app.models.database import init_db, async_session, ModelRecord, WorkflowPreset, ModelUpdateRecord
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -81,10 +81,104 @@ async def seed_models():
         logger.info("Seeded %d models from registry", len(models_list))
 
 
+SYSTEM_PRESETS = [
+    {
+        "slug": "coding", "name": "Coding", "icon": "code-2",
+        "description": "Optimized for code generation, debugging, and reviews",
+        "default_track": "quality", "min_coding_score": 7,
+        "require_function_calling": True,
+    },
+    {
+        "slug": "research", "name": "Research", "icon": "book-open",
+        "description": "Deep reasoning and analysis with long context support",
+        "default_track": "quality", "min_reasoning_score": 7,
+        "require_long_context": True,
+    },
+    {
+        "slug": "writing", "name": "Writing", "icon": "pen-line",
+        "description": "Creative and professional writing tasks",
+        "default_track": "balanced",
+    },
+    {
+        "slug": "support", "name": "Customer Support", "icon": "headset",
+        "description": "Fast, reliable responses for support workflows",
+        "default_track": "speed",
+    },
+    {
+        "slug": "extraction", "name": "Data Extraction", "icon": "table-2",
+        "description": "Structured output from unstructured data",
+        "default_track": "balanced",
+        "require_structured_output": True,
+    },
+    {
+        "slug": "agent", "name": "Agent / Tool Use", "icon": "bot",
+        "description": "Multi-step agentic workflows with tool calling",
+        "default_track": "quality",
+        "require_function_calling": True, "min_reasoning_score": 6,
+    },
+]
+
+
+async def seed_presets():
+    """Seed system workflow presets if they don't exist."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(WorkflowPreset).where(WorkflowPreset.is_system == True).limit(1)
+        )
+        if result.scalar_one_or_none() is not None:
+            return
+
+        for p in SYSTEM_PRESETS:
+            row = WorkflowPreset(
+                is_system=True,
+                clerk_user_id=None,
+                name=p["name"],
+                slug=p["slug"],
+                icon=p.get("icon"),
+                description=p.get("description"),
+                default_track=p.get("default_track", "balanced"),
+                min_reasoning_score=p.get("min_reasoning_score"),
+                min_coding_score=p.get("min_coding_score"),
+                require_function_calling=p.get("require_function_calling", False),
+                require_structured_output=p.get("require_structured_output", False),
+                require_vision=p.get("require_vision", False),
+                require_long_context=p.get("require_long_context", False),
+            )
+            session.add(row)
+        await session.commit()
+        logger.info("Seeded %d system workflow presets", len(SYSTEM_PRESETS))
+
+
+async def seed_changelog():
+    """Seed initial 'added' changelog entries from existing models."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(ModelUpdateRecord).limit(1)
+        )
+        if result.scalar_one_or_none() is not None:
+            return
+
+        models_result = await session.execute(select(ModelRecord))
+        models = models_result.scalars().all()
+        for m in models:
+            row = ModelUpdateRecord(
+                model_id=m.id,
+                update_type="added",
+                description=f"{m.display_name} by {m.provider} added to registry",
+                new_values={"tier": m.tier, "provider": m.provider},
+                created_at=m.last_verified_at or m.created_at,
+            )
+            session.add(row)
+        await session.commit()
+        logger.info("Seeded %d changelog entries", len(models))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     await seed_models()
+    await seed_presets()
+    await seed_changelog()
     yield
 
 
@@ -126,6 +220,8 @@ app.add_middleware(
 )
 
 from app.api.routes import events, gold, health, insights, intelligence, models  # noqa: E402
+from app.api.routes import history, preferences, presets  # noqa: E402
+from app.api.routes import changelog, v1_analyze, quality, replay, onboarding, content  # noqa: E402
 
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(models.router, prefix="/api", tags=["models"])
@@ -133,3 +229,12 @@ app.include_router(events.router, prefix="/api", tags=["panel"])
 app.include_router(insights.router, prefix="/api", tags=["panel"])
 app.include_router(intelligence.router, prefix="/api", tags=["panel"])
 app.include_router(gold.router, prefix="/api", tags=["panel"])
+app.include_router(history.router, prefix="/api", tags=["user"])
+app.include_router(preferences.router, prefix="/api", tags=["user"])
+app.include_router(presets.router, prefix="/api", tags=["user"])
+app.include_router(changelog.router, prefix="/api", tags=["changelog"])
+app.include_router(quality.router, prefix="/api", tags=["quality"])
+app.include_router(replay.router, prefix="/api", tags=["quality"])
+app.include_router(onboarding.router, prefix="/api", tags=["onboarding"])
+app.include_router(content.router, prefix="/api", tags=["content"])
+app.include_router(v1_analyze.router, prefix="/api/v1", tags=["public-api"])

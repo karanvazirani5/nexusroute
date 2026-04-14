@@ -216,6 +216,21 @@ function ModelCard({ model, onToggle }: { model: ModelInfo; onToggle: (id: strin
           <p className="mt-3 text-[10px] text-zinc-500">Cutoff: <span className="font-mono text-zinc-400">{row.knowledge_cutoff}</span></p>
         )}
 
+        {/* Freshness indicator */}
+        {(() => {
+          const verifiedAt = typeof row.last_verified_at === "string" ? row.last_verified_at : null;
+          if (!verifiedAt) return null;
+          const days = Math.floor((Date.now() - new Date(verifiedAt).getTime()) / (1000 * 60 * 60 * 24));
+          const isStale = days > 90 || row.is_outdated === true;
+          const isMedium = days > 45;
+          return (
+            <p className={`mt-2 text-[10px] font-medium ${isStale ? "text-amber-400" : isMedium ? "text-blue-400" : "text-emerald-400"}`}>
+              {isStale ? "Needs review" : isMedium ? "Medium confidence" : "High confidence"}
+              <span className="text-zinc-500 font-normal"> · verified {days === 0 ? "today" : `${days}d ago`}</span>
+            </p>
+          );
+        })()}
+
         {/* Capability badges */}
         <div className="mt-3 flex flex-wrap gap-1">
           {model.supports_vision && <span className="panel-chip chip-sm text-[9px]"><Eye className="h-2.5 w-2.5" /> Vision</span>}

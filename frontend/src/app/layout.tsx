@@ -4,6 +4,7 @@ import "./globals.css";
 import { CommandPalette } from "@/components/CommandPalette";
 import { AppShell } from "@/components/AppShell";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { Providers } from "@/components/Providers";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -47,10 +48,12 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
     >
       <body className="min-h-full bg-background text-foreground">
-        <ErrorBoundary>
-          <AppShell>{children}</AppShell>
-        </ErrorBoundary>
-        <CommandPalette />
+        <Providers>
+          <ErrorBoundary>
+            <AppShell>{children}</AppShell>
+          </ErrorBoundary>
+          <CommandPalette />
+        </Providers>
       </body>
     </html>
   );

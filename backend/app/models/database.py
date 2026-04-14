@@ -306,6 +306,250 @@ class GoldPrompt(Base):
     taxonomy_version = Column(String, default="1.0.0")
 
 
+# ──────────────────────────────────────────────────────────────────
+# Phase B — User identity & retention layer
+#
+# These tables store data for authenticated users (Clerk). Anonymous
+# visitors never touch these tables — the advisor works fully without
+# sign-in.
+# ──────────────────────────────────────────────────────────────────
+
+
+class PromptHistory(Base):
+    """Saved prompt analyses for authenticated users."""
+
+    __tablename__ = "prompt_history"
+
+    history_id = Column(String, primary_key=True, default=_uuid)
+    clerk_user_id = Column(String, nullable=False, index=True)
+    prompt_text = Column(Text, nullable=False)
+    prompt_preview = Column(String(300), nullable=False)
+    winner_model_id = Column(String, nullable=True)
+    winner_model_name = Column(String, nullable=True)
+    winner_provider = Column(String, nullable=True)
+    winner_score = Column(Float, nullable=True)
+    task_type = Column(String, nullable=True)
+    optimization_track = Column(String, nullable=True)
+    full_result_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=_now, index=True)
+
+
+Index(
+    "ix_prompt_history_user_created",
+    PromptHistory.clerk_user_id,
+    PromptHistory.created_at.desc(),
+)
+
+
+class UserPreferences(Base):
+    """Per-user routing preferences. One row per authenticated user."""
+
+    __tablename__ = "user_preferences"
+
+    clerk_user_id = Column(String, primary_key=True)
+    default_track = Column(String, default="balanced")  # quality / balanced / speed / cost
+    preferred_providers = Column(JSON, default=list)
+    excluded_providers = Column(JSON, default=list)
+    budget_ceiling_per_1m = Column(Float, nullable=True)
+    prefer_open_weight = Column(Boolean, default=False)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
+    created_at = Column(DateTime, default=_now)
+
+
+class WorkflowPreset(Base):
+    """Reusable constraint profiles for common workflows."""
+
+    __tablename__ = "workflow_presets"
+
+    preset_id = Column(String, primary_key=True, default=_uuid)
+    clerk_user_id = Column(String, nullable=True, index=True)  # null = system preset
+    name = Column(String, nullable=False)
+    slug = Column(String, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    icon = Column(String, nullable=True)
+    is_system = Column(Boolean, default=False)
+
+    # Constraint profile
+    default_track = Column(String, default="balanced")
+    preferred_providers = Column(JSON, default=list)
+    excluded_providers = Column(JSON, default=list)
+    budget_ceiling_per_1m = Column(Float, nullable=True)
+    prefer_open_weight = Column(Boolean, default=False)
+
+    # Routing hints
+    min_reasoning_score = Column(Integer, nullable=True)
+    min_coding_score = Column(Integer, nullable=True)
+    require_function_calling = Column(Boolean, default=False)
+    require_structured_output = Column(Boolean, default=False)
+    require_vision = Column(Boolean, default=False)
+    require_long_context = Column(Boolean, default=False)
+
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
+
+
+class ModelUpdateRecord(Base):
+    """Changelog entry for model score changes, additions, and deprecations."""
+
+    __tablename__ = "model_updates"
+
+    update_id = Column(String, primary_key=True, default=_uuid)
+    model_id = Column(String, ForeignKey("models.id"), nullable=False, index=True)
+    update_type = Column(String, nullable=False)  # added / scores_updated / deprecated / reactivated
+    description = Column(Text, nullable=True)
+    old_values = Column(JSON, default=dict)
+    new_values = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=_now, index=True)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Learning loop — outcome-based feedback & calibration
+# ──────────────────────────────────────────────────────────────────
+
+
+class RecommendationFeedback(Base):
+    """Explicit user feedback on a recommendation (thumbs, override, free-text)."""
+
+    __tablename__ = "recommendation_feedback"
+
+    feedback_id = Column(String, primary_key=True, default=_uuid)
+    event_id = Column(String, ForeignKey("prompt_events.event_id"), nullable=True, index=True)
+    user_id = Column(String, nullable=True, index=True)
+    session_id = Column(String, nullable=True)
+    feedback_type = Column(String, nullable=False)  # thumbs_up / thumbs_down / override
+    selected_model = Column(String, nullable=True)
+    recommended_model = Column(String, nullable=True)
+    override_reason = Column(String, nullable=True)
+    override_reason_text = Column(Text, nullable=True)
+    rating = Column(Integer, nullable=True)  # 1-5
+    time_to_feedback_ms = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=_now, index=True)
+
+
+class RecommendationOverride(Base):
+    """Structured override: user chose a different model than the top recommendation."""
+
+    __tablename__ = "recommendation_overrides"
+
+    override_id = Column(String, primary_key=True, default=_uuid)
+    event_id = Column(String, ForeignKey("prompt_events.event_id"), nullable=True, unique=True, index=True)
+    user_id = Column(String, nullable=True, index=True)
+    recommended_model = Column(String, nullable=False)
+    selected_model = Column(String, nullable=False)
+    override_reason = Column(String, nullable=True)
+    override_reason_text = Column(Text, nullable=True)
+    category_primary = Column(String, nullable=True, index=True)
+    subcategory = Column(String, nullable=True)
+    complexity_score = Column(Integer, nullable=True)
+    routing_confidence = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=_now, index=True)
+
+
+class RecommendationOutcome(Base):
+    """Derived outcome signal for a recommendation — combines behavioural proxies."""
+
+    __tablename__ = "recommendation_outcomes"
+
+    outcome_id = Column(String, primary_key=True, default=_uuid)
+    event_id = Column(String, ForeignKey("prompt_events.event_id"), nullable=True, unique=True, index=True)
+    user_id = Column(String, nullable=True, index=True)
+    recommended_model = Column(String, nullable=True)
+    selected_model = Column(String, nullable=True)
+    outcome_label = Column(String, nullable=False, default="no_signal")  # accepted / overridden / abandoned / no_signal
+    success = Column(Boolean, nullable=True)  # filled by calibration pipeline
+    composite_score = Column(Float, nullable=True)
+    accepted = Column(Boolean, default=False)
+    overridden = Column(Boolean, default=False)
+    copied = Column(Boolean, default=False)
+    exported = Column(Boolean, default=False)
+    rerouted = Column(Boolean, default=False)
+    abandoned = Column(Boolean, default=False)
+    explicit_rating = Column(Integer, nullable=True)
+    inferred_satisfaction = Column(Float, nullable=True)
+    time_to_decision_ms = Column(Integer, nullable=True)
+    category_primary = Column(String, nullable=True, index=True)
+    subcategory = Column(String, nullable=True)
+    complexity_score = Column(Integer, nullable=True)
+    routing_confidence = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=_now, index=True)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
+
+
+Index(
+    "ix_outcomes_category_model_time",
+    RecommendationOutcome.category_primary,
+    RecommendationOutcome.recommended_model,
+    RecommendationOutcome.created_at,
+)
+
+
+class CalibrationBucket(Base):
+    """Empirical calibration: maps raw confidence buckets to observed success rates."""
+
+    __tablename__ = "calibration_buckets"
+
+    bucket_id = Column(String, primary_key=True, default=_uuid)
+    bucket_label = Column(String, nullable=False)  # e.g. "0.5-0.6"
+    bucket_lower = Column(Float, nullable=False)
+    bucket_upper = Column(Float, nullable=False)
+    predicted_confidence = Column(Float, nullable=False)  # avg routing_confidence in bucket
+    empirical_success_rate = Column(Float, nullable=False)
+    sample_count = Column(Integer, nullable=False, default=0)
+    calibration_version = Column(String, default="1.0.0")
+    last_computed_at = Column(DateTime, default=_now)
+
+
+class CalibrationRun(Base):
+    """Record of a calibration batch run for auditing and version comparison."""
+
+    __tablename__ = "calibration_runs"
+
+    run_id = Column(String, primary_key=True, default=_uuid)
+    started_at = Column(DateTime, default=_now)
+    completed_at = Column(DateTime, nullable=True)
+    events_processed = Column(Integer, default=0)
+    ece_score = Column(Float, nullable=True)  # Expected Calibration Error
+    max_calibration_error = Column(Float, nullable=True)
+    calibration_version = Column(String, default="1.0.0")
+    status = Column(String, default="running")  # running / completed / failed
+    config = Column(JSON, default=dict)
+
+
+class OnboardingProgress(Base):
+    """Tracks onboarding funnel for anonymous and authenticated users."""
+
+    __tablename__ = "onboarding_progress"
+
+    progress_id = Column(String, primary_key=True, default=_uuid)
+    clerk_user_id = Column(String, nullable=True, index=True)
+    anonymous_user_id = Column(String, nullable=True, index=True)
+    completed_steps = Column(JSON, default=list)
+    current_step = Column(String, nullable=True)
+    use_case = Column(String, nullable=True)
+    priority = Column(String, nullable=True)
+    evaluation_context = Column(String, nullable=True)  # personal / prototype / production
+    template_used = Column(String, nullable=True)
+    first_prompt_at = Column(DateTime, nullable=True)
+    prompts_submitted = Column(Integer, default=0)
+    nudges_shown = Column(JSON, default=list)
+    nudges_dismissed = Column(JSON, default=list)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
+
+
+class ContentView(Base):
+    """Tracks page views and CTA click-throughs for use-case content pages."""
+
+    __tablename__ = "content_views"
+
+    view_id = Column(String, primary_key=True, default=_uuid)
+    slug = Column(String, nullable=False, index=True)
+    event_type = Column(String, nullable=False, default="view")  # view / click_through
+    source = Column(String, nullable=True)
+    user_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=_now, index=True)
+
+
 engine = create_async_engine(get_settings().database_url, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

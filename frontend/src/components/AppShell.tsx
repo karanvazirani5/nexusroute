@@ -14,22 +14,34 @@ import {
   Menu,
   X,
   Compass,
+  Clock,
+  Settings2,
+  GraduationCap,
+  History,
+  Target,
 } from "lucide-react";
+import { UserButton, SignInButton, useAuth } from "@clerk/nextjs";
 
 const NAV = [
   { href: "/", label: "Advisor", icon: Sparkles },
   { href: "/dashboard", label: "Panel", icon: LayoutDashboard },
   { href: "/explorer", label: "Explorer", icon: Compass },
   { href: "/models", label: "Models", icon: Database },
+  { href: "/guides", label: "Guides", icon: GraduationCap },
+  { href: "/use-cases", label: "Use Cases", icon: Target },
   { href: "/compare", label: "Compare", icon: ArrowLeftRight },
+  { href: "/changelog", label: "Changelog", icon: History },
   { href: "/methodology", label: "How it works", icon: BookOpen },
   { href: "/privacy", label: "Privacy", icon: Shield },
+  { href: "/history", label: "History", icon: Clock },
+  { href: "/settings", label: "Settings", icon: Settings2 },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const isHome = pathname === "/";
+  const { isSignedIn } = useAuth();
 
   function isActive(href: string) {
     return href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -134,6 +146,21 @@ export function AppShell({ children }: { children: ReactNode }) {
             className="hidden sm:inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2 text-[11px] font-bold text-white shadow-lg shadow-violet-600/20 ring-1 ring-white/10 hover:brightness-110 transition-all">
             <Sparkles className="h-3.5 w-3.5" /> Try Advisor
           </Link>
+          {isSignedIn ? (
+            <UserButton
+              appearance={{
+                elements: {
+                  avatarBox: "h-8 w-8",
+                },
+              }}
+            />
+          ) : (
+            <SignInButton mode="modal">
+              <button className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all">
+                Sign in
+              </button>
+            </SignInButton>
+          )}
         </header>
 
         <main className="flex-1">

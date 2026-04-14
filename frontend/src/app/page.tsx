@@ -1,7 +1,9 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles,
@@ -23,6 +25,7 @@ import {
   Send,
   Target,
   Eye,
+  Share2,
   ChevronRight,
   ChevronDown,
   Copy,
@@ -35,8 +38,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { analyzePromptRemote } from "@/lib/engine/analyzer";
 import { ALL_MODELS } from "@/lib/data/models";
-import { captureEvent, recordOutcome } from "@/lib/telemetry";
+import { captureEvent, recordOutcome, submitFeedback } from "@/lib/telemetry";
 import PromptRewriteCard from "@/components/PromptRewriteCard";
+import FeedbackWidget from "@/components/FeedbackWidget";
+import ConfidenceBand from "@/components/ConfidenceBand";
+import OnboardingFlow from "@/components/OnboardingFlow";
+import OnboardingNudge from "@/components/OnboardingNudge";
+import ProductionReadiness from "@/components/ProductionReadiness";
+import { useAuthFetch } from "@/lib/auth";
+import { usePreferences } from "@/lib/preferences";
 import type { AnalysisResult, TrackRecommendation } from "@/lib/types";
 
 /* ── TYPEWRITER PLACEHOLDERS ────────────────────────────────────── */
@@ -78,14 +88,14 @@ function useTypewriter(strings: string[], speed = 50, pause = 2000) {
   return text;
 }
 
-/* ── EXAMPLES ───────────────────────────────────────────────────── */
+/* ── USE-CASE TEMPLATES ─────────────────────────────────────────── */
 const EXAMPLES = [
-  { emoji: "💻", label: "Build a REST API", full: "Build a REST API in Python with authentication and rate limiting" },
-  { emoji: "📄", label: "Summarize legal docs", full: "Summarize this 200-page legal contract into bullet points" },
-  { emoji: "🤖", label: "Research agent", full: "Build an autonomous agent that researches and compares vector databases" },
-  { emoji: "🎨", label: "Generate a logo", full: "Generate a minimalist SaaS product logo with gradients" },
-  { emoji: "📊", label: "Analyze data", full: "Analyze this CSV financial data and generate charts with insights" },
-  { emoji: "✍️", label: "Write copy", full: "Write compelling product copy for a B2B SaaS landing page" },
+  { emoji: "🎫", label: "Support triage", full: "Classify and route incoming support tickets by urgency, category, and required expertise level. Handle 5K tickets/day.", category: "support", track: "speed" },
+  { emoji: "💻", label: "Codebase Q&A", full: "Answer developer questions about a large TypeScript monorepo with 500+ files, using repo context and documentation.", category: "coding", track: "quality" },
+  { emoji: "📄", label: "Long-doc extraction", full: "Extract key clauses, dates, parties, and obligations from 200-page legal contracts into structured JSON.", category: "extraction", track: "quality" },
+  { emoji: "🤖", label: "Agent workflows", full: "Build an autonomous research agent that searches, evaluates sources, and produces a synthesized report with citations.", category: "agent", track: "quality" },
+  { emoji: "📊", label: "Cheap classification", full: "Classify 100K product reviews by sentiment and topic at the lowest possible cost per request.", category: "data", track: "cost" },
+  { emoji: "✍️", label: "Polished writing", full: "Write a compelling 2000-word thought leadership article about AI in enterprise, matching our sophisticated brand voice.", category: "writing", track: "quality" },
 ];
 
 const FEATURES = [
@@ -190,9 +200,21 @@ function TrackCard({ title, track, color }: { title: string; track: TrackRecomme
           <p className="text-[10px] font-bold text-emerald-400/80 uppercase tracking-wider">Why it won</p>
           <ul className="mt-1 list-inside list-disc text-zinc-400">{track.whyWon.map((x, i) => <li key={i}>{x}</li>)}</ul>
         </div>
+        {track.whyAlternativesLost.length > 0 && (
+          <div>
+            <p className="text-[10px] font-bold text-red-400/80 uppercase tracking-wider">Why #2 lost</p>
+            <ul className="mt-1 list-inside list-disc text-zinc-400">{track.whyAlternativesLost.map((x, i) => <li key={i}>{x}</li>)}</ul>
+          </div>
+        )}
+        {track.tradeoffs.length > 0 && (
+          <div>
+            <p className="text-[10px] font-bold text-amber-400/80 uppercase tracking-wider">Tradeoffs</p>
+            <ul className="mt-1 list-inside list-disc text-zinc-400">{track.tradeoffs.map((x, i) => <li key={i}>{x}</li>)}</ul>
+          </div>
+        )}
         {track.switchToAlternativeIf.length > 0 && (
           <div>
-            <p className="text-[10px] font-bold text-blue-400/80 uppercase tracking-wider">Switch if...</p>
+            <p className="text-[10px] font-bold text-blue-400/80 uppercase tracking-wider">What would change the winner</p>
             <ul className="mt-1 list-inside list-disc text-zinc-400">{track.switchToAlternativeIf.map((x, i) => <li key={i}>{x}</li>)}</ul>
           </div>
         )}
@@ -246,7 +268,7 @@ function DeepAnalysis({ result }: { result: AnalysisResult }) {
         </div>
       </Collapsible>
 
-      <Collapsible title="Confidence & Uncertainty">
+      <Collapsible title="Confidence & Uncertainty" defaultOpen>
         <div className="grid gap-2 sm:grid-cols-2 text-sm">
           {[
             ["Interpretation", `~${Math.round(a.uncertainty.interpretationConfidence * 100)}%`],
@@ -314,26 +336,134 @@ function routingCapture(analysis: AnalysisResult) {
 
 /* ═══════════════════════════════════════════════════════════════════ */
 
-export default function HomePage() {
+function HomePageInner() {
   const [prompt, setPrompt] = useState("");
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [eventId, setEventId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [shared, setShared] = useState(false);
+  const [promptCount, setPromptCount] = useState(0);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const startedAt = useRef(0);
   const placeholder = useTypewriter(PLACEHOLDERS);
+  const searchParams = useSearchParams();
+  const { authFetch, isSignedIn } = useAuthFetch();
+  const { preferences } = usePreferences();
+
+  // Show onboarding on first visit
+  useEffect(() => {
+    if (typeof window !== "undefined" && !localStorage.getItem("nr_onboarding_completed")) {
+      setShowOnboarding(true);
+    }
+  }, []);
+
+  // Workflow presets
+  const [presets, setPresets] = useState<Array<{ preset_id: string; name: string; slug: string; icon: string | null; is_system: boolean; default_track: string; excluded_providers: string[]; preferred_providers: string[]; budget_ceiling_per_1m: number | null; prefer_open_weight: boolean; min_reasoning_score: number | null; min_coding_score: number | null; require_function_calling: boolean; require_structured_output: boolean; require_vision: boolean; require_long_context: boolean }>>([]);
+  const [activePreset, setActivePreset] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"}/presets`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setPresets)
+      .catch(() => {});
+  }, []);
+
+  // Build constraint overrides from preferences + active preset
+  const buildOverrides = useCallback(() => {
+    const overrides: {
+      excludedProviders?: string[];
+      preferredProviders?: string[];
+      allowedProviders?: string[];
+      budgetCeiling?: number;
+      preferOpenWeight?: boolean;
+      defaultTrack?: string;
+    } = {};
+
+    // Layer 0: onboarding provider selection (localStorage)
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("nr_onboarding_providers");
+      if (stored) {
+        try {
+          const providers = JSON.parse(stored) as string[];
+          if (Array.isArray(providers) && providers.length > 0) {
+            overrides.allowedProviders = providers;
+          }
+        } catch { /* ignore malformed */ }
+      }
+    }
+
+    // Layer 1: user preferences
+    if (preferences) {
+      if (preferences.excluded_providers.length) overrides.excludedProviders = preferences.excluded_providers;
+      if (preferences.preferred_providers.length) overrides.preferredProviders = preferences.preferred_providers;
+      if (preferences.budget_ceiling_per_1m != null) overrides.budgetCeiling = preferences.budget_ceiling_per_1m;
+      if (preferences.prefer_open_weight) overrides.preferOpenWeight = true;
+      if (preferences.default_track !== "balanced") overrides.defaultTrack = preferences.default_track;
+    }
+
+    // Layer 2: active preset overrides preferences
+    const preset = presets.find(p => p.preset_id === activePreset);
+    if (preset) {
+      if (preset.excluded_providers.length) overrides.excludedProviders = preset.excluded_providers;
+      if (preset.preferred_providers.length) overrides.preferredProviders = preset.preferred_providers;
+      if (preset.budget_ceiling_per_1m != null) overrides.budgetCeiling = preset.budget_ceiling_per_1m;
+      if (preset.prefer_open_weight) overrides.preferOpenWeight = true;
+      if (preset.default_track !== "balanced") overrides.defaultTrack = preset.default_track;
+    }
+
+    return Object.keys(overrides).length > 0 ? overrides : undefined;
+  }, [preferences, presets, activePreset]);
 
   const analyze = useCallback(async (text: string) => {
     if (!text.trim()) return;
     setLoading(true); setError(null); setResult(null); startedAt.current = Date.now();
     try {
-      const r = await analyzePromptRemote(text.trim(), ALL_MODELS);
+      const overrides = buildOverrides();
+      const r = await analyzePromptRemote(text.trim(), ALL_MODELS, overrides);
       setResult(r);
       captureEvent({ prompt: text.trim(), routing: routingCapture(r) }).then(ev => { if (ev) setEventId(ev.event_id); }).catch(() => {});
+
+      // Auto-save to history for signed-in users
+      if (isSignedIn) {
+        const top = r.recommendations[0];
+        authFetch("/user/history", {
+          method: "POST",
+          body: JSON.stringify({
+            prompt_text: text.trim(),
+            prompt_preview: text.trim().slice(0, 300),
+            winner_model_id: top?.modelId ?? null,
+            winner_model_name: top?.modelName ?? null,
+            winner_provider: top?.provider ?? null,
+            winner_score: top?.score ?? null,
+            task_type: r.taskClassification?.primary ?? null,
+            optimization_track: r.advisor?.tracks?.bestAbsolute?.trackId ?? null,
+            full_result_json: r,
+          }),
+        }).catch(() => {});
+      }
+      setPromptCount((c) => c + 1);
     } catch (e) { setError(e instanceof Error ? e.message : "Analysis failed"); }
     finally { setLoading(false); }
+  }, [buildOverrides, isSignedIn, authFetch]);
+
+  // Re-run from history via ?q= or deep-link from use-case pages via ?prompt=
+  useEffect(() => {
+    const q = searchParams.get("q") || searchParams.get("prompt");
+    if (q) {
+      const decoded = decodeURIComponent(q);
+      setPrompt(decoded);
+      void analyze(decoded);
+    }
+    // Auto-select track from deep-link
+    const track = searchParams.get("track");
+    if (track) {
+      const preset = presets.find((p) => p.default_track === track || p.slug === track);
+      if (preset) setActivePreset(preset.preset_id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleCopy = useCallback(async () => {
@@ -343,11 +473,64 @@ export default function HomePage() {
     if (eventId) recordOutcome(eventId, { selected_model: top.modelId, copied: true, time_to_decision_ms: Date.now() - startedAt.current }).catch(() => {});
   }, [eventId, result]);
 
+  const handleShare = useCallback(async () => {
+    if (!result || !result.recommendations[0]) return;
+    const top = result.recommendations[0];
+    const payload = {
+      prompt: result.promptPreview || result.prompt.slice(0, 300),
+      winner: {
+        modelId: top.modelId,
+        modelName: top.modelName,
+        provider: top.provider,
+        score: top.score,
+        tier: top.tier,
+        reasoning: top.reasoning[0],
+        inputCost: top.pricingEstimate.inputCost,
+        outputCost: top.pricingEstimate.outputCost,
+      },
+      alternatives: result.recommendations.slice(1, 4).map(r => ({
+        modelId: r.modelId,
+        modelName: r.modelName,
+        provider: r.provider,
+        score: r.score,
+        tier: r.tier,
+      })),
+      task: result.taskClassification.primaryLabel,
+      confidence: result.confidence,
+      ts: result.timestamp,
+    };
+    const encoded = btoa(encodeURIComponent(JSON.stringify(payload)));
+    const url = `${window.location.origin}/result?d=${encoded}`;
+    try { await navigator.clipboard.writeText(url); } catch {}
+    setShared(true); setTimeout(() => setShared(false), 2500);
+  }, [result]);
+
+  // Override capture state (Sprint 1.2)
+  const [overrideTarget, setOverrideTarget] = useState<string | null>(null);
+  const [overrideReason, setOverrideReason] = useState<string | null>(null);
+  const [overrideSubmitted, setOverrideSubmitted] = useState(false);
+
   const top = result?.recommendations[0];
   const runnerUps = result?.recommendations.slice(1, 5) ?? [];
 
   return (
     <div className="space-y-24">
+      {/* ═══════ ONBOARDING ═══════ */}
+      <AnimatePresence>
+        {showOnboarding && !result && (
+          <section className="relative pt-8">
+            <OnboardingFlow
+              onComplete={(seedPrompt, track) => {
+                setShowOnboarding(false);
+                setPrompt(seedPrompt);
+                void analyze(seedPrompt);
+              }}
+              onSkip={() => setShowOnboarding(false)}
+            />
+          </section>
+        )}
+      </AnimatePresence>
+
       {/* ═══════ HERO ═══════ */}
       <section className="relative pt-8 md:pt-16">
         {/* Animated background orbs */}
@@ -432,6 +615,26 @@ export default function HomePage() {
               </button>
             </div>
           </div>
+
+          {/* Workflow presets */}
+          {presets.length > 0 && (
+            <div className="flex items-center gap-2 mt-4 overflow-x-auto pb-1 scrollbar-none">
+              <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-zinc-600">Workflow:</span>
+              {presets.map((p) => (
+                <button
+                  key={p.preset_id}
+                  onClick={() => setActivePreset(activePreset === p.preset_id ? null : p.preset_id)}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all whitespace-nowrap ${
+                    activePreset === p.preset_id
+                      ? "bg-violet-500/20 text-violet-300 border border-violet-500/40 ring-1 ring-violet-500/30"
+                      : "bg-white/[0.03] text-zinc-500 border border-white/[0.06] hover:text-zinc-300 hover:border-white/10"
+                  }`}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
         </motion.div>
 
         {/* ═══════ LOADING ═══════ */}
@@ -484,10 +687,10 @@ export default function HomePage() {
               transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
               className="max-w-5xl mx-auto mt-12 space-y-8"
             >
-              {/* Task badge */}
+              {/* Task badge + confidence band */}
               <div className="flex items-center justify-center gap-3 flex-wrap">
                 <span className="panel-chip panel-chip-active">{result.taskClassification.primaryLabel}</span>
-                <span className="panel-chip">{result.confidence}% confidence</span>
+                <ConfidenceBand rawConfidence={result.confidence} compact showAdvice={false} />
               </div>
 
               <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
@@ -508,7 +711,13 @@ export default function HomePage() {
                           <span className="text-[10px] font-black uppercase tracking-widest text-yellow-400">Best Match</span>
                         </div>
                         <h2 className="text-3xl font-black text-white mb-2">{top.modelName}</h2>
-                        <p className="text-sm text-zinc-400 mb-4">{top.reasoning[0]}</p>
+                        <p className="text-sm text-zinc-400 mb-2">{top.reasoning[0]}</p>
+                        {runnerUps[0] && (
+                          <p className="text-[11px] text-zinc-500 mb-4">
+                            <span className="text-zinc-400 font-medium">vs {runnerUps[0].modelName}:</span>{" "}
+                            {runnerUps[0].reasoning[0]}
+                          </p>
+                        )}
                         <div className="flex flex-wrap gap-2 justify-center md:justify-start">
                           <PBadge provider={top.provider} /><TBadge tier={top.tier} />
                           <span className="panel-chip chip-sm">In: {top.pricingEstimate.inputCost}</span>
@@ -526,11 +735,33 @@ export default function HomePage() {
                     </Button>
                     <Link href={`/models/${top.modelId}`}><Button size="sm" variant="outline" className="gap-1.5 rounded-xl"><Database className="h-3 w-3" />View Model</Button></Link>
                     {runnerUps[0] && <Link href="/compare"><Button size="sm" variant="outline" className="gap-1.5 rounded-xl"><GitCompare className="h-3 w-3" />Compare</Button></Link>}
+                    <Button size="sm" variant="outline" onClick={() => void handleShare()} className="gap-1.5 rounded-xl">
+                      {shared ? <Check className="h-3 w-3 text-emerald-400" /> : <Share2 className="h-3 w-3" />}
+                      {shared ? "Link copied!" : "Share"}
+                    </Button>
                     <button onClick={() => { setPrompt(""); setResult(null); setEventId(null); inputRef.current?.focus(); }}
                       className="ml-auto text-sm text-zinc-500 hover:text-violet-300 transition-colors font-semibold">
                       Try another
                     </button>
                   </div>
+
+                  {/* Feedback */}
+                  <FeedbackWidget
+                    eventId={eventId}
+                    recommendedModelId={top.modelId}
+                    recommendedModelName={top.modelName}
+                    allModelNames={ALL_MODELS.filter(m => m.isActive).map(m => ({ id: m.id, name: m.displayName }))}
+                    startedAt={startedAt.current}
+                  />
+
+                  {/* Confidence detail */}
+                  <ConfidenceBand rawConfidence={result.confidence} />
+
+                  {/* Onboarding nudge */}
+                  <OnboardingNudge promptCount={promptCount} />
+
+                  {/* Production readiness */}
+                  <ProductionReadiness result={result} />
 
                   {/* Prompt Rewrite */}
                   {prompt.trim() && top && (
@@ -541,23 +772,93 @@ export default function HomePage() {
                     />
                   )}
 
-                  {/* Runner-ups */}
+                  {/* Runner-ups with override capture */}
                   {runnerUps.length > 0 && (
                     <div>
                       <h3 className="panel-label mb-3 flex items-center gap-2"><BarChart3 className="h-3.5 w-3.5 text-violet-400" />Alternatives</h3>
                       <div className="grid gap-3 sm:grid-cols-2">
                         {runnerUps.map((rec, i) => (
-                          <motion.div key={rec.modelId} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 + i * 0.08 }}
-                            className="panel-card panel-card-hover p-4">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/[0.06] text-[10px] font-black text-zinc-400">{rec.rank}</span>
-                                <span className="font-bold text-white text-sm">{rec.modelName}</span>
+                          <motion.div key={rec.modelId} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 + i * 0.08 }}>
+                            <div
+                              onClick={() => { if (overrideTarget !== rec.modelId) { setOverrideTarget(rec.modelId); setOverrideReason(null); setOverrideSubmitted(false); } }}
+                              className="panel-card panel-card-hover p-4 cursor-pointer"
+                            >
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-white/[0.06] text-[10px] font-black text-zinc-400">{rec.rank}</span>
+                                  <span className="font-bold text-white text-sm">{rec.modelName}</span>
+                                </div>
+                                <span className="text-sm font-black text-data text-zinc-300">{rec.score}</span>
                               </div>
-                              <span className="text-sm font-black text-data text-zinc-300">{rec.score}</span>
+                              <p className="text-[11px] text-zinc-500 line-clamp-2">{rec.reasoning[0]}</p>
+                              <div className="mt-2 flex gap-1.5"><PBadge provider={rec.provider} /><TBadge tier={rec.tier} /></div>
                             </div>
-                            <p className="text-[11px] text-zinc-500 line-clamp-2">{rec.reasoning[0]}</p>
-                            <div className="mt-2 flex gap-1.5"><PBadge provider={rec.provider} /><TBadge tier={rec.tier} /></div>
+                            {/* Override capture slide-down */}
+                            <AnimatePresence>
+                              {overrideTarget === rec.modelId && !overrideSubmitted && (
+                                <motion.div
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: "auto", opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  transition={{ duration: 0.2 }}
+                                  className="overflow-hidden"
+                                >
+                                  <div className="mt-1 rounded-xl border border-violet-500/15 bg-violet-500/[0.03] p-3 space-y-2">
+                                    <p className="text-[11px] font-semibold text-violet-300">What made you choose this instead?</p>
+                                    <div className="flex flex-wrap gap-1">
+                                      {["cheaper","faster","better_coding","better_writing","better_reasoning","privacy","habit"].map(r => (
+                                        <button key={r} onClick={(e) => { e.stopPropagation(); setOverrideReason(overrideReason === r ? null : r); }}
+                                          className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition-all border ${
+                                            overrideReason === r
+                                              ? "bg-violet-500/15 text-violet-300 border-violet-500/30"
+                                              : "bg-white/[0.03] text-zinc-500 border-white/[0.06] hover:text-zinc-300"
+                                          }`}>
+                                          {r.replace("_", " ")}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setOverrideSubmitted(true);
+                                          if (eventId && top) {
+                                            submitFeedback({
+                                              event_id: eventId,
+                                              feedback_type: "override",
+                                              recommended_model: top.modelId,
+                                              selected_model: rec.modelId,
+                                              override_reason: overrideReason ?? undefined,
+                                              time_to_feedback_ms: Date.now() - startedAt.current,
+                                            });
+                                            recordOutcome(eventId, {
+                                              user_accepted_recommendation: false,
+                                              user_overrode_recommendation: true,
+                                              selected_model: rec.modelId,
+                                              override_reason: overrideReason ?? "other",
+                                              time_to_decision_ms: Date.now() - startedAt.current,
+                                            });
+                                          }
+                                        }}
+                                        className="rounded-lg bg-violet-500/15 border border-violet-500/25 px-3 py-1.5 text-[11px] font-semibold text-violet-300 hover:bg-violet-500/20 transition-all"
+                                      >
+                                        Submit
+                                      </button>
+                                      <button onClick={(e) => { e.stopPropagation(); setOverrideTarget(null); }}
+                                        className="text-[11px] text-zinc-600 hover:text-zinc-400">
+                                        Dismiss
+                                      </button>
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              )}
+                              {overrideTarget === rec.modelId && overrideSubmitted && (
+                                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-1 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.03] p-2 flex items-center gap-2">
+                                  <Check className="h-3 w-3 text-emerald-400" />
+                                  <span className="text-[11px] text-emerald-300 font-medium">Thanks!</span>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
                           </motion.div>
                         ))}
                       </div>
@@ -657,5 +958,13 @@ export default function HomePage() {
         </div>
       </motion.section>
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense>
+      <HomePageInner />
+    </Suspense>
   );
 }

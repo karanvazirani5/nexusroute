@@ -145,19 +145,50 @@ function toLegacyRecommendation(
 
 // ── Core Pipeline ────────────────────────────────────────────
 
+/** User/preset overrides that adjust the routing pipeline. */
+export interface RoutingOverrides {
+  excludedProviders?: string[];
+  preferredProviders?: string[];
+  /** When set, only models from these providers + open-weight models are considered. */
+  allowedProviders?: string[];
+  budgetCeiling?: number;
+  preferOpenWeight?: boolean;
+  defaultTrack?: string;
+}
+
 export function analyzeWithInterpretation(
   prompt: string,
   models: ModelProfile[],
   interpretation: PromptInterpretation,
-  interpretationProvenance?: InterpretationProvenance
+  interpretationProvenance?: InterpretationProvenance,
+  overrides?: RoutingOverrides
 ): AnalysisResult {
   const requirements = interpretationToRequirements(interpretation);
   const tensor = buildDemandTensor(interpretation);
   const constraints = buildHardConstraints(interpretation);
 
+  // Apply user/preset overrides
+  let filteredModels = models;
+  if (overrides?.allowedProviders?.length) {
+    const allowed = new Set(overrides.allowedProviders.map(p => p.toLowerCase()));
+    filteredModels = filteredModels.filter(
+      m => allowed.has(m.provider.toLowerCase()) || m.tags.some(t => t.toLowerCase() === "open-weight" || t.toLowerCase() === "openweight")
+    );
+  }
+  if (overrides?.excludedProviders?.length) {
+    const excluded = new Set(overrides.excludedProviders.map(p => p.toLowerCase()));
+    filteredModels = filteredModels.filter(m => !excluded.has(m.provider.toLowerCase()));
+  }
+  if (overrides?.budgetCeiling != null) {
+    constraints.maxEstimatedCostUsd = overrides.budgetCeiling;
+  }
+  if (overrides?.preferOpenWeight) {
+    constraints.requiresOpenWeight = true;
+  }
+
   let eligibilityNotes: string[] = [];
   let { eligible, exclusions } = filterEligibleModels(
-    models,
+    filteredModels,
     constraints,
     interpretation
   );
@@ -303,13 +334,15 @@ export function analyzeWithInterpretation(
 
 export function analyzePrompt(
   prompt: string,
-  models: ModelProfile[]
+  models: ModelProfile[],
+  overrides?: RoutingOverrides
 ): AnalysisResult {
   return analyzeWithInterpretation(
     prompt,
     models,
     interpretPrompt(prompt),
-    { source: "structural_statistical", note: "Offline — no /api/advisor/interpret call" }
+    { source: "structural_statistical", note: "Offline — no /api/advisor/interpret call" },
+    overrides
   );
 }
 
@@ -319,7 +352,8 @@ export function analyzePrompt(
  */
 export async function analyzePromptRemote(
   prompt: string,
-  models: ModelProfile[]
+  models: ModelProfile[],
+  overrides?: RoutingOverrides
 ): Promise<AnalysisResult> {
   const trimmed = prompt.trim();
   if (!trimmed) throw new Error("Empty prompt");
@@ -337,5 +371,5 @@ export async function analyzePromptRemote(
   if (!res.ok || !data.interpretation) {
     throw new Error(data.error || "Interpret request failed");
   }
-  return analyzeWithInterpretation(trimmed, models, data.interpretation, data.provenance);
+  return analyzeWithInterpretation(trimmed, models, data.interpretation, data.provenance, overrides);
 }

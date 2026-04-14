@@ -317,3 +317,332 @@ class GoldPromptRead(BaseModel):
     taxonomy_version: str
 
     model_config = {"from_attributes": True}
+
+
+# ── Phase B: Prompt History ──
+
+
+class PromptHistoryCreate(BaseModel):
+    prompt_text: str
+    prompt_preview: str = Field(max_length=300)
+    winner_model_id: Optional[str] = None
+    winner_model_name: Optional[str] = None
+    winner_provider: Optional[str] = None
+    winner_score: Optional[float] = None
+    task_type: Optional[str] = None
+    optimization_track: Optional[str] = None
+    full_result_json: Optional[dict] = None
+
+
+class PromptHistoryRead(BaseModel):
+    history_id: str
+    prompt_text: str
+    prompt_preview: str
+    winner_model_id: Optional[str]
+    winner_model_name: Optional[str]
+    winner_provider: Optional[str]
+    winner_score: Optional[float]
+    task_type: Optional[str]
+    optimization_track: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PromptHistoryDetail(PromptHistoryRead):
+    full_result_json: Optional[dict] = None
+
+
+# ── Phase B: User Preferences ──
+
+
+class UserPreferencesRead(BaseModel):
+    default_track: str = "balanced"
+    preferred_providers: list[str] = []
+    excluded_providers: list[str] = []
+    budget_ceiling_per_1m: Optional[float] = None
+    prefer_open_weight: bool = False
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class UserPreferencesUpdate(BaseModel):
+    default_track: Optional[str] = None
+    preferred_providers: Optional[list[str]] = None
+    excluded_providers: Optional[list[str]] = None
+    budget_ceiling_per_1m: Optional[float] = None
+    prefer_open_weight: Optional[bool] = None
+
+
+# ── Phase B: Workflow Presets ──
+
+
+class WorkflowPresetRead(BaseModel):
+    preset_id: str
+    name: str
+    slug: str
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    is_system: bool
+    default_track: str
+    preferred_providers: list[str] = []
+    excluded_providers: list[str] = []
+    budget_ceiling_per_1m: Optional[float] = None
+    prefer_open_weight: bool = False
+    min_reasoning_score: Optional[int] = None
+    min_coding_score: Optional[int] = None
+    require_function_calling: bool = False
+    require_structured_output: bool = False
+    require_vision: bool = False
+    require_long_context: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class WorkflowPresetCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    default_track: str = "balanced"
+    preferred_providers: list[str] = []
+    excluded_providers: list[str] = []
+    budget_ceiling_per_1m: Optional[float] = None
+    prefer_open_weight: bool = False
+    min_reasoning_score: Optional[int] = None
+    min_coding_score: Optional[int] = None
+    require_function_calling: bool = False
+    require_structured_output: bool = False
+    require_vision: bool = False
+    require_long_context: bool = False
+
+
+class WorkflowPresetUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    icon: Optional[str] = None
+    default_track: Optional[str] = None
+    preferred_providers: Optional[list[str]] = None
+    excluded_providers: Optional[list[str]] = None
+    budget_ceiling_per_1m: Optional[float] = None
+    prefer_open_weight: Optional[bool] = None
+    min_reasoning_score: Optional[int] = None
+    min_coding_score: Optional[int] = None
+    require_function_calling: Optional[bool] = None
+    require_structured_output: Optional[bool] = None
+    require_vision: Optional[bool] = None
+    require_long_context: Optional[bool] = None
+
+
+# ── Phase C: Model Changelog ──
+
+
+class ModelChangelogEntry(BaseModel):
+    update_id: str
+    model_id: str
+    model_name: str
+    provider: str
+    update_type: str
+    description: Optional[str] = None
+    old_values: dict = {}
+    new_values: dict = {}
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ── Phase C: Public API ──
+
+
+class AnalyzeRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=10000)
+    optimize_for: str = "balanced"
+    max_cost_per_1m: Optional[float] = None
+
+
+class AnalyzeModelResult(BaseModel):
+    model_id: str
+    display_name: str
+    provider: str
+    tier: str
+    score: float
+    quality_fit: float
+    cost_efficiency: float
+    speed: float
+
+
+class AnalyzeResponse(BaseModel):
+    task_profile: TaskProfile
+    recommendations: list[AnalyzeModelResult]
+    primary_model: str
+    primary_provider: str
+    explanation: str
+    confidence: float
+
+
+# ── Learning loop: Feedback & Outcomes ──
+
+
+class RecommendationFeedbackCreate(BaseModel):
+    event_id: Optional[str] = None
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    feedback_type: str  # thumbs_up / thumbs_down / override
+    selected_model: Optional[str] = None
+    recommended_model: Optional[str] = None
+    override_reason: Optional[str] = None
+    override_reason_text: Optional[str] = Field(default=None, max_length=500)
+    rating: Optional[int] = Field(default=None, ge=1, le=5)
+    time_to_feedback_ms: Optional[int] = None
+
+
+class RecommendationFeedbackRead(BaseModel):
+    feedback_id: str
+    event_id: Optional[str]
+    user_id: Optional[str]
+    session_id: Optional[str]
+    feedback_type: str
+    selected_model: Optional[str]
+    recommended_model: Optional[str]
+    override_reason: Optional[str]
+    override_reason_text: Optional[str]
+    rating: Optional[int]
+    time_to_feedback_ms: Optional[int]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class RecommendationOverrideRead(BaseModel):
+    override_id: str
+    event_id: Optional[str]
+    user_id: Optional[str]
+    recommended_model: str
+    selected_model: str
+    override_reason: Optional[str]
+    override_reason_text: Optional[str]
+    category_primary: Optional[str]
+    subcategory: Optional[str]
+    complexity_score: Optional[int]
+    routing_confidence: Optional[float]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class RecommendationOutcomeRead(BaseModel):
+    outcome_id: str
+    event_id: Optional[str]
+    user_id: Optional[str]
+    recommended_model: Optional[str]
+    selected_model: Optional[str]
+    outcome_label: str
+    success: Optional[bool]
+    composite_score: Optional[float]
+    accepted: bool
+    overridden: bool
+    copied: bool
+    exported: bool
+    rerouted: bool
+    abandoned: bool
+    explicit_rating: Optional[int]
+    inferred_satisfaction: Optional[float]
+    time_to_decision_ms: Optional[int]
+    category_primary: Optional[str]
+    subcategory: Optional[str]
+    routing_confidence: Optional[float]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class OutcomeWeights(BaseModel):
+    """Configurable weights for computing composite outcome scores."""
+    helpful: float = 1.0
+    not_helpful: float = -1.0
+    copied: float = 0.5
+    shared: float = 0.6
+    compared: float = 0.2
+    override_of_top: float = -0.7
+    override_chosen: float = 0.5
+    abandoned: float = -0.8
+
+
+class QualityScorecard(BaseModel):
+    """Aggregate recommendation quality metrics."""
+    total_outcomes: int = 0
+    total_feedback: int = 0
+    acceptance_rate: Optional[float] = None
+    override_rate: Optional[float] = None
+    abandon_rate: Optional[float] = None
+    avg_composite_score: Optional[float] = None
+    avg_satisfaction: Optional[float] = None
+    avg_time_to_decision_ms: Optional[float] = None
+    feedback_volume: int = 0
+    helpful_rate: Optional[float] = None
+    category_breakdown: list[dict] = Field(default_factory=list)
+    model_breakdown: list[dict] = Field(default_factory=list)
+
+
+class CalibrationBucketRead(BaseModel):
+    bucket_id: str
+    bucket_label: str
+    bucket_lower: float
+    bucket_upper: float
+    predicted_confidence: float
+    empirical_success_rate: float
+    sample_count: int
+    calibration_version: str
+    last_computed_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CalibrationRunRead(BaseModel):
+    run_id: str
+    started_at: datetime
+    completed_at: Optional[datetime]
+    events_processed: int
+    ece_score: Optional[float]
+    max_calibration_error: Optional[float]
+    calibration_version: str
+    status: str
+
+    model_config = {"from_attributes": True}
+
+
+class OnboardingProgressCreate(BaseModel):
+    clerk_user_id: Optional[str] = None
+    anonymous_user_id: Optional[str] = None
+    current_step: Optional[str] = None
+    use_case: Optional[str] = None
+    priority: Optional[str] = None
+    evaluation_context: Optional[str] = None
+    template_used: Optional[str] = None
+
+
+class OnboardingProgressUpdate(BaseModel):
+    current_step: Optional[str] = None
+    completed_steps: Optional[list[str]] = None
+    use_case: Optional[str] = None
+    priority: Optional[str] = None
+    evaluation_context: Optional[str] = None
+    template_used: Optional[str] = None
+    prompts_submitted: Optional[int] = None
+
+
+class OnboardingProgressRead(BaseModel):
+    progress_id: str
+    clerk_user_id: Optional[str]
+    anonymous_user_id: Optional[str]
+    completed_steps: list
+    current_step: Optional[str]
+    use_case: Optional[str]
+    priority: Optional[str]
+    evaluation_context: Optional[str]
+    template_used: Optional[str]
+    prompts_submitted: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

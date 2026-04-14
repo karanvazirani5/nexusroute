@@ -17,9 +17,11 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import delete
+
 from app.core import intelligence, intent_classifier, redaction, taxonomy
 from app.core.intent_classifier import HeuristicLabels
-from app.models.database import PanelSession, PanelUser, PromptEvent
+from app.models.database import PanelSession, PanelUser, PromptEvent, RecommendationOutcome
 from app.models.schemas import EventCreate, OutcomeUpdate
 
 
@@ -215,6 +217,10 @@ async def apply_outcome(db: AsyncSession, update: OutcomeUpdate) -> Optional[Pro
     # Refresh the inferred satisfaction proxy whenever a signal moves.
     event.inferred_satisfaction = _infer_satisfaction(event)
     await db.flush()
+
+    # Derive / update the learning-loop outcome row
+    await compute_outcome(db, event)
+
     return event
 
 
@@ -298,3 +304,135 @@ def _infer_satisfaction(event: PromptEvent) -> Optional[float]:
     if not signals:
         return None
     return sum(signals) / len(signals)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Outcome derivation (Sprint 1.4) + success labeling (Sprint 2.1)
+# ──────────────────────────────────────────────────────────────────
+
+# Configurable outcome weights
+OUTCOME_WEIGHTS = {
+    "helpful": 1.0,
+    "not_helpful": -1.0,
+    "copied": 0.5,
+    "shared": 0.6,
+    "compared": 0.2,
+    "override_of_top": -0.7,
+    "override_chosen": 0.5,
+    "abandoned": -0.8,
+}
+
+
+def _derive_outcome_label(event: PromptEvent) -> str:
+    """Derive the high-level outcome label from PromptEvent signals."""
+    if event.user_accepted_recommendation and not event.abandoned:
+        return "accepted"
+    if event.user_overrode_recommendation:
+        return "overridden"
+    if event.abandoned:
+        return "abandoned"
+    # Infer acceptance from copy/export without explicit override
+    if (event.copied or event.exported) and not event.user_overrode_recommendation:
+        return "accepted"
+    return "no_signal"
+
+
+def _compute_composite_score(event: PromptEvent) -> Optional[float]:
+    """Compute a weighted composite outcome score from all signals."""
+    score = 0.0
+    has_signal = False
+
+    if event.user_accepted_recommendation and not event.abandoned:
+        score += OUTCOME_WEIGHTS["helpful"]
+        has_signal = True
+    if event.user_overrode_recommendation:
+        score += OUTCOME_WEIGHTS["override_of_top"]
+        has_signal = True
+    if event.copied:
+        score += OUTCOME_WEIGHTS["copied"]
+        has_signal = True
+    if event.exported:
+        score += OUTCOME_WEIGHTS["shared"]
+        has_signal = True
+    if event.abandoned:
+        score += OUTCOME_WEIGHTS["abandoned"]
+        has_signal = True
+    if event.explicit_rating is not None:
+        # Map 1-5 to -1.0 to 1.0
+        score += (event.explicit_rating - 3) / 2.0
+        has_signal = True
+
+    return score if has_signal else None
+
+
+def compute_success_label(event: PromptEvent) -> Optional[bool]:
+    """
+    Derive a binary success label for calibration.
+
+    Returns True (success), False (failure), or None (uncertain / insufficient signal).
+
+    Success = user accepted AND not abandoned, OR explicit_rating >= 4,
+              OR copied without override.
+    Failure = overridden, OR explicit_rating <= 2, OR abandoned.
+    """
+    # Explicit positive signals
+    if event.user_accepted_recommendation and not event.abandoned:
+        return True
+    if event.explicit_rating is not None and event.explicit_rating >= 4:
+        return True
+    if event.copied and not event.user_overrode_recommendation:
+        return True
+
+    # Explicit negative signals
+    if event.user_overrode_recommendation:
+        return False
+    if event.explicit_rating is not None and event.explicit_rating <= 2:
+        return False
+    if event.abandoned:
+        return False
+
+    # Insufficient signal
+    return None
+
+
+async def compute_outcome(db: AsyncSession, event: PromptEvent) -> RecommendationOutcome:
+    """
+    Derive and upsert a RecommendationOutcome from the current PromptEvent state.
+    Idempotent — always re-derives from full event state.
+    """
+    outcome_label = _derive_outcome_label(event)
+    composite_score = _compute_composite_score(event)
+    success = compute_success_label(event)
+
+    # Upsert: delete existing then insert
+    await db.execute(
+        delete(RecommendationOutcome).where(
+            RecommendationOutcome.event_id == event.event_id
+        )
+    )
+
+    outcome = RecommendationOutcome(
+        event_id=event.event_id,
+        user_id=event.user_id,
+        recommended_model=event.recommended_model,
+        selected_model=event.selected_model,
+        outcome_label=outcome_label,
+        success=success,
+        composite_score=round(composite_score, 4) if composite_score is not None else None,
+        accepted=(outcome_label == "accepted"),
+        overridden=(outcome_label == "overridden"),
+        copied=bool(event.copied),
+        exported=bool(event.exported),
+        rerouted=bool(event.rerouted),
+        abandoned=bool(event.abandoned),
+        explicit_rating=event.explicit_rating,
+        inferred_satisfaction=event.inferred_satisfaction,
+        time_to_decision_ms=event.time_to_decision_ms,
+        category_primary=event.category_primary,
+        subcategory=event.subcategory,
+        complexity_score=event.complexity_score,
+        routing_confidence=event.routing_confidence,
+    )
+    db.add(outcome)
+    await db.flush()
+    return outcome

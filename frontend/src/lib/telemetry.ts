@@ -263,5 +263,31 @@ export async function recordOutcome(
   await patch(`/panel/events/${eventId}`, { event_id: eventId, ...outcome });
 }
 
+// ──────────────────────────────────────────────────────────────────
+// Structured feedback submission (learning loop)
+// ──────────────────────────────────────────────────────────────────
+
+export interface FeedbackPayload {
+  event_id?: string | null;
+  feedback_type: "thumbs_up" | "thumbs_down" | "override";
+  selected_model?: string;
+  recommended_model?: string;
+  override_reason?: string;
+  override_reason_text?: string;
+  rating?: number;
+  time_to_feedback_ms?: number;
+}
+
+export async function submitFeedback(
+  payload: FeedbackPayload
+): Promise<void> {
+  const session = await ensureSession();
+  await post("/panel/feedback", {
+    ...payload,
+    user_id: session?.userId ?? getUserId(),
+    session_id: session?.sessionId ?? getSessionId(),
+  });
+}
+
 // fetchDashboard was removed — the dashboard uses fetchJson from
 // @/lib/constants directly. This file is telemetry-only.
